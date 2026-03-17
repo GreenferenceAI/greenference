@@ -15,6 +15,7 @@ def utcnow() -> datetime:
 
 class APIKeyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+    user_id: str | None = None
     admin: bool = False
     scopes: list[str] = Field(default_factory=list)
 
@@ -22,9 +23,22 @@ class APIKeyCreateRequest(BaseModel):
 class APIKeyRecord(BaseModel):
     key_id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
+    user_id: str | None = None
     admin: bool = False
     scopes: list[str] = Field(default_factory=list)
     secret: str
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class UserRegistrationRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    email: str | None = None
+
+
+class UserRecord(BaseModel):
+    user_id: str = Field(default_factory=lambda: str(uuid4()))
+    username: str
+    email: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -222,4 +236,3 @@ class ChatCompletionResponse(BaseModel):
     deployment_id: str
     routed_hotkey: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
-

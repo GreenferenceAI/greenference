@@ -17,15 +17,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     register = subparsers.add_parser("register")
-    register.add_argument("--hotkey", required=True)
-    register.add_argument("--payout-address", required=True)
-    register.add_argument("--api-base-url", required=True)
-    register.add_argument("--validator-url", required=True)
+    register.add_argument("--username", required=True)
+    register.add_argument("--email")
 
     keys = subparsers.add_parser("keys")
     keys_sub = keys.add_subparsers(dest="keys_command", required=True)
     key_create = keys_sub.add_parser("create")
     key_create.add_argument("--name", required=True)
+    key_create.add_argument("--user-id")
     key_create.add_argument("--admin", action="store_true")
 
     build = subparsers.add_parser("build")
@@ -35,7 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--public", action="store_true")
 
     deploy = subparsers.add_parser("deploy")
-    deploy.add_argument("--workload-id", required=True)
+    deploy.add_argument("--workload-id")
+    deploy.add_argument("--name")
+    deploy.add_argument("--image")
+    deploy.add_argument("--gpu-count", type=int, default=1)
+    deploy.add_argument("--min-vram-gb", type=int, default=16)
     deploy.add_argument("--requested-instances", type=int, default=1)
 
     invoke = subparsers.add_parser("invoke")
@@ -58,18 +61,24 @@ def main() -> None:
         _emit(
             client.register(
                 {
-                    "hotkey": args.hotkey,
-                    "payout_address": args.payout_address,
-                    "api_base_url": args.api_base_url,
-                    "validator_url": args.validator_url,
-                    "supported_workload_kinds": ["inference"],
+                    "username": args.username,
+                    "email": args.email,
                 }
             )
         )
         return
 
     if args.command == "keys" and args.keys_command == "create":
-        _emit(client.create_api_key({"name": args.name, "admin": args.admin, "scopes": []}))
+        _emit(
+            client.create_api_key(
+                {
+                    "name": args.name,
+                    "user_id": args.user_id,
+                    "admin": args.admin,
+                    "scopes": [],
+                }
+            )
+        )
         return
 
     if args.command == "build":
@@ -86,10 +95,25 @@ def main() -> None:
         return
 
     if args.command == "deploy":
+        workload_id = args.workload_id
+        if workload_id is None:
+            if not args.name or not args.image:
+                parser.error("deploy requires --workload-id or both --name and --image")
+            workload = client.create_workload(
+                {
+                    "name": args.name,
+                    "image": args.image,
+                    "requirements": {
+                        "gpu_count": args.gpu_count,
+                        "min_vram_gb_per_gpu": args.min_vram_gb,
+                    },
+                }
+            )
+            workload_id = workload["workload_id"]
         _emit(
             client.deploy(
                 {
-                    "workload_id": args.workload_id,
+                    "workload_id": workload_id,
                     "requested_instances": args.requested_instances,
                 }
             )
@@ -109,4 +133,3 @@ def main() -> None:
 
     if args.command == "workloads" and args.workloads_command == "list":
         _emit(client.workloads())
-

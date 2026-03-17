@@ -19,6 +19,8 @@ from greenference_protocol.models import (
     ProbeChallenge,
     ProbeResult,
     ScoreCard,
+    UserRecord,
+    UserRegistrationRequest,
     UsageRecord,
     WeightSnapshot,
     WorkloadCreateRequest,
@@ -49,6 +51,8 @@ __all__ = [
     "ScoreCard",
     "SecurityTier",
     "SignedRequest",
+    "UserRecord",
+    "UserRegistrationRequest",
     "UsageRecord",
     "WeightSnapshot",
     "WorkloadCreateRequest",
@@ -58,4 +62,3 @@ __all__ = [
     "sign_payload",
     "verify_payload",
 ]
-

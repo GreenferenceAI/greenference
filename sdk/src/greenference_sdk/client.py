@@ -24,6 +24,9 @@ class GreenferenceClient:
             return json.loads(response.read().decode())
 
     def register(self, payload: dict) -> dict:
+        return self._post("/platform/register", payload)
+
+    def register_miner(self, payload: dict) -> dict:
         return self._post("/agent/v1/register", payload)
 
     def create_api_key(self, payload: dict) -> dict:
@@ -43,4 +46,3 @@ class GreenferenceClient:
 
     def workloads(self) -> list[dict]:
         return self._get("/platform/workloads")  # type: ignore[return-value]
-
