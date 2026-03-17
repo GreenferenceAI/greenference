@@ -194,6 +194,8 @@ class UsageRecord(BaseModel):
     workload_id: str
     hotkey: str
     request_count: int = Field(default=1, ge=0)
+    streamed_request_count: int = Field(default=0, ge=0)
+    stream_chunk_count: int = Field(default=0, ge=0)
     compute_seconds: float = Field(default=0.0, ge=0.0)
     latency_ms_p95: float = Field(default=0.0, ge=0.0)
     occupancy_seconds: float = Field(default=0.0, ge=0.0)
