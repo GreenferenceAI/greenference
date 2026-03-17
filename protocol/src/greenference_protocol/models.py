@@ -110,6 +110,7 @@ class MinerRegistration(BaseModel):
     payout_address: str
     api_base_url: str
     validator_url: str
+    auth_secret: str = Field(min_length=8)
     supported_workload_kinds: list[WorkloadKind] = Field(
         default_factory=lambda: [WorkloadKind.INFERENCE]
     )
