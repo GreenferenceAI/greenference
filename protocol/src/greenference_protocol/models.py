@@ -71,6 +71,13 @@ class InferenceRuntimeConfig(BaseModel):
     tokenizer_identifier: str | None = Field(default=None, min_length=1, max_length=255)
 
 
+class WorkloadLifecyclePolicy(BaseModel):
+    scaling_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+    shutdown_after_seconds: int = Field(default=300, ge=0, le=86400)
+    warmup_enabled: bool = False
+    warmup_path: str | None = Field(default=None, min_length=1, max_length=255)
+
+
 class WorkloadCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     image: str = Field(min_length=1)
@@ -85,7 +92,20 @@ class WorkloadCreateRequest(BaseModel):
     pricing_class: str = Field(default="standard", min_length=1, max_length=32)
     requirements: WorkloadRequirements = Field(default_factory=WorkloadRequirements)
     runtime: InferenceRuntimeConfig = Field(default_factory=InferenceRuntimeConfig)
+    lifecycle: WorkloadLifecyclePolicy = Field(default_factory=WorkloadLifecyclePolicy)
     public: bool = False
+
+
+class WorkloadUpdateRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    readme: str | None = Field(default=None, max_length=20000)
+    logo_uri: str | None = Field(default=None, min_length=1, max_length=1024)
+    tags: list[str] | None = None
+    workload_alias: str | None = Field(default=None, min_length=1, max_length=100)
+    ingress_host: str | None = Field(default=None, min_length=1, max_length=255)
+    pricing_class: str | None = Field(default=None, min_length=1, max_length=32)
+    public: bool | None = None
+    lifecycle: WorkloadLifecyclePolicy | None = None
 
 
 class WorkloadSpec(WorkloadCreateRequest):
@@ -97,6 +117,12 @@ class WorkloadSpec(WorkloadCreateRequest):
 class DeploymentCreateRequest(BaseModel):
     workload_id: str
     requested_instances: int = Field(default=1, ge=1, le=64)
+    accept_fee: bool = True
+
+
+class DeploymentUpdateRequest(BaseModel):
+    requested_instances: int | None = Field(default=None, ge=1, le=64)
+    fee_acknowledged: bool | None = None
 
 
 class DeploymentRecord(BaseModel):
@@ -109,6 +135,9 @@ class DeploymentRecord(BaseModel):
     requested_instances: int = 1
     ready_instances: int = 0
     endpoint: str | None = None
+    deployment_fee_usd: float = Field(default=0.0, ge=0.0)
+    fee_acknowledged: bool = True
+    warmup_state: str = "pending"
     last_error: str | None = None
     failure_class: str | None = None
     last_retry_reason: str | None = None
