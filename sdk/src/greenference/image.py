@@ -69,6 +69,14 @@ class Image:
         self._directives.append(_Directive(f"ENV {key}={value}"))
         return self
 
+    def with_maintainer(self, value: str) -> Image:
+        self._directives.append(_Directive(f"LABEL maintainer={value!r}"))
+        return self
+
+    def as_user(self, user: str) -> Image:
+        self._directives.append(_Directive(f"USER {user}"))
+        return self
+
     def apt_install(self, packages: str | Iterable[str]) -> Image:
         joined = packages if isinstance(packages, str) else " ".join(packages)
         self._directives.append(
@@ -79,12 +87,21 @@ class Image:
         )
         return self
 
+    def apt_remove(self, packages: str | Iterable[str]) -> Image:
+        joined = packages if isinstance(packages, str) else " ".join(packages)
+        self._directives.append(_Directive(f"RUN apt-get remove -y {joined} && apt-get autoremove -y"))
+        return self
+
     def run_command(self, command: str) -> Image:
         self._directives.append(_Directive(f"RUN {command}"))
         return self
 
     def add(self, source: str, destination: str) -> Image:
         self._directives.append(_Directive(f"ADD {source} {destination}", (source,)))
+        return self
+
+    def copy(self, source: str, destination: str) -> Image:
+        self._directives.append(_Directive(f"COPY {source} {destination}", (source,)))
         return self
 
     def set_workdir(self, directory: str) -> Image:
@@ -94,4 +111,9 @@ class Image:
     def with_entrypoint(self, *args: str) -> Image:
         quoted = ", ".join(f'"{item}"' for item in args)
         self._directives.append(_Directive(f"ENTRYPOINT [{quoted}]"))
+        return self
+
+    def with_cmd(self, *args: str) -> Image:
+        quoted = ", ".join(f'"{item}"' for item in args)
+        self._directives.append(_Directive(f"CMD [{quoted}]"))
         return self

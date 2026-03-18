@@ -9,8 +9,13 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from greenference.client import GreenferenceClient
-from greenference.config import default_config_path, get_config, save_config
+from greenference.client import (
+    GreenferenceClient,
+    GreenferenceConnectionError,
+    GreenferenceHTTPError,
+    GreenferenceTimeoutError,
+)
+from greenference.config import default_config_path, get_config, init_config, mask_secret, save_config, unset_config
 from greenference.loader import load_workload
 from greenference.packaging import package_workload
 
@@ -38,9 +43,53 @@ def _emit(data: Any) -> None:
 def _render_build_log(entry: dict) -> str:
     if "message" in entry and "stage" in entry:
         return f"[{entry['stage']}] {entry['message']}"
+    if entry.get("event") == "end":
+        return f"[build] terminal status={entry.get('status')}"
     if "status" in entry:
         return f"[build] status={entry['status']}"
     return json.dumps(entry, default=str)
+
+
+def _render_build_table(items: list[dict], *, title: str = "Builds") -> None:
+    if not items:
+        console.print("No builds found.")
+        return
+    table = Table(title=title)
+    table.add_column("Build ID", style="cyan")
+    table.add_column("Image")
+    table.add_column("Status")
+    table.add_column("Executor")
+    for build in items:
+        table.add_row(
+            build.get("build_id", ""),
+            build.get("image", ""),
+            build.get("status", ""),
+            build.get("executor_name", "") or "",
+        )
+    console.print(table)
+
+
+def _render_deployment_table(items: list[dict]) -> None:
+    if not items:
+        console.print("No deployments found.")
+        return
+    table = Table(title="Deployments")
+    table.add_column("Deployment ID", style="cyan")
+    table.add_column("Workload ID")
+    table.add_column("State")
+    table.add_column("Instances")
+    table.add_column("Endpoint")
+    table.add_column("Fee Ack")
+    for deployment in items:
+        table.add_row(
+            deployment.get("deployment_id", ""),
+            deployment.get("workload_id", ""),
+            deployment.get("state", ""),
+            str(deployment.get("requested_instances", "")),
+            deployment.get("endpoint", "") or "",
+            "" if deployment.get("fee_acknowledged") is None else ("yes" if deployment.get("fee_acknowledged") else "no"),
+        )
+    console.print(table)
 
 
 def _load_packaged(module_ref: str):
@@ -89,12 +138,16 @@ def _render_workload_table(items: list[dict]) -> None:
     table.add_column("Name")
     table.add_column("Image")
     table.add_column("Kind")
+    table.add_column("Alias")
+    table.add_column("Public")
     for workload in items:
         table.add_row(
             workload.get("workload_id", ""),
             workload.get("name", ""),
             workload.get("image", ""),
             workload.get("kind", ""),
+            workload.get("workload_alias", "") or "",
+            "yes" if workload.get("public") else "no",
         )
     console.print(table)
 
@@ -120,7 +173,22 @@ def config_show() -> None:
         {
             "config_path": str(default_config_path()),
             "base_url": config.api_base_url,
-            "api_key": config.api_key,
+            "api_key": mask_secret(config.api_key),
+        }
+    )
+
+
+@config_app.command("init", help="Initialize SDK configuration on disk")
+def config_init(
+    base_url: str = typer.Option("http://127.0.0.1:8000", help="Default Greenference API URL"),
+    api_key: str | None = typer.Option(None, help="Default API key"),
+) -> None:
+    saved = init_config(api_base_url=base_url, api_key=api_key)
+    _emit(
+        {
+            "config_path": str(default_config_path()),
+            "base_url": saved.api_base_url,
+            "api_key": mask_secret(saved.api_key),
         }
     )
 
@@ -135,7 +203,22 @@ def config_set(
         {
             "config_path": str(default_config_path()),
             "base_url": saved.api_base_url,
-            "api_key": saved.api_key,
+            "api_key": mask_secret(saved.api_key),
+        }
+    )
+
+
+@config_app.command("unset", help="Remove stored config values")
+def config_unset(
+    base_url: bool = typer.Option(False, help="Unset stored base URL"),
+    api_key: bool = typer.Option(False, help="Unset stored API key"),
+) -> None:
+    saved = unset_config(api_base_url=base_url, api_key=api_key)
+    _emit(
+        {
+            "config_path": str(default_config_path()),
+            "base_url": saved.api_base_url,
+            "api_key": mask_secret(saved.api_key),
         }
     )
 
@@ -162,6 +245,20 @@ def workloads_list(ctx: typer.Context) -> None:
     _render_workload_table(client.list_workloads())
 
 
+@workloads_app.command("create", help="Create a workload from a Python module ref")
+def workloads_create(
+    ctx: typer.Context,
+    module_ref: str = typer.Argument(..., help="Python ref like path/to/file.py:workload"),
+    public: bool | None = typer.Option(None, "--public/--private", help="Visibility override"),
+) -> None:
+    client = _client(ctx)
+    loaded = load_workload(module_ref)
+    payload = loaded.workload.to_workload_payload()
+    if public is not None:
+        payload["public"] = public
+    _emit(client.create_workload(payload))
+
+
 @workloads_app.command("get", help="Get a workload by ID")
 def workloads_get(
     ctx: typer.Context,
@@ -185,9 +282,15 @@ def workloads_update(
     ctx: typer.Context,
     workload_id: str = typer.Argument(..., help="Workload ID"),
     display_name: str | None = typer.Option(None, help="Display name"),
+    readme: str | None = typer.Option(None, help="Workload README"),
+    logo_uri: str | None = typer.Option(None, help="Logo URI"),
+    tag: list[str] | None = typer.Option(None, "--tag", help="Tag to apply, repeatable"),
+    clear_tags: bool = typer.Option(False, help="Clear all tags"),
     public: bool | None = typer.Option(None, "--public/--private", help="Visibility override"),
     workload_alias: str | None = typer.Option(None, help="Alias used for invocation routing"),
+    clear_workload_alias: bool = typer.Option(False, help="Clear workload alias"),
     ingress_host: str | None = typer.Option(None, help="Ingress host"),
+    pricing_class: str | None = typer.Option(None, help="Pricing class"),
     scaling_threshold: float | None = typer.Option(None, help="Scale-up threshold"),
     shutdown_after_seconds: int | None = typer.Option(None, help="Idle shutdown timeout"),
     warmup_enabled: bool | None = typer.Option(None, "--warmup-enabled/--warmup-disabled", help="Warmup toggle"),
@@ -197,12 +300,24 @@ def workloads_update(
     payload: dict[str, Any] = {}
     if display_name is not None:
         payload["display_name"] = display_name
+    if readme is not None:
+        payload["readme"] = readme
+    if logo_uri is not None:
+        payload["logo_uri"] = logo_uri
+    if clear_tags:
+        payload["tags"] = []
+    elif tag is not None:
+        payload["tags"] = tag
     if public is not None:
         payload["public"] = public
-    if workload_alias is not None:
+    if clear_workload_alias:
+        payload["clear_workload_alias"] = True
+    elif workload_alias is not None:
         payload["workload_alias"] = workload_alias
     if ingress_host is not None:
         payload["ingress_host"] = ingress_host
+    if pricing_class is not None:
+        payload["pricing_class"] = pricing_class
     lifecycle: dict[str, Any] = {}
     if scaling_threshold is not None:
         lifecycle["scaling_threshold"] = scaling_threshold
@@ -250,6 +365,15 @@ def workloads_warmup(
     client = _client(ctx)
     for event in client.workload_warmup(workload_id):
         _emit(event)
+
+
+@workloads_app.command("utilization", help="Show workload utilization")
+def workloads_utilization(
+    ctx: typer.Context,
+    workload_id: str = typer.Argument(..., help="Workload ID"),
+) -> None:
+    client = _client(ctx)
+    _emit(client.get_workload_utilization(workload_id))
 
 
 @workloads_app.command("create-vllm", help="Create a VLLM workload from HuggingFace model")
@@ -337,6 +461,63 @@ def images_get(
 ) -> None:
     client = _client(ctx)
     _emit(client.get_build(build_id))
+
+
+@images_app.command("history", help="Show build history for an image")
+def images_history(
+    ctx: typer.Context,
+    image: str = typer.Argument(..., help="Image reference"),
+) -> None:
+    client = _client(ctx)
+    _render_build_table(client.list_image_history(image), title=f"Image History: {image}")
+
+
+builds_app = typer.Typer(help="Manage builds")
+app.add_typer(builds_app, name="builds")
+
+
+@builds_app.command("list", help="List builds")
+def builds_list(ctx: typer.Context) -> None:
+    client = _client(ctx)
+    _render_build_table(client.list_builds())
+
+
+@builds_app.command("get", help="Get a build by ID")
+def builds_get(
+    ctx: typer.Context,
+    build_id: str = typer.Argument(..., help="Build ID"),
+) -> None:
+    client = _client(ctx)
+    _emit(client.get_build(build_id))
+
+
+@builds_app.command("logs", help="Stream build logs")
+def builds_logs(
+    ctx: typer.Context,
+    build_id: str = typer.Argument(..., help="Build ID"),
+    follow: bool = typer.Option(False, help="Follow until terminal build state"),
+) -> None:
+    client = _client(ctx)
+    for entry in client.stream_build_logs(build_id, follow=follow):
+        console.print(_render_build_log(entry))
+
+
+@builds_app.command("wait", help="Wait for a build to reach a terminal state")
+def builds_wait(
+    ctx: typer.Context,
+    build_id: str = typer.Argument(..., help="Build ID"),
+    timeout: float = typer.Option(300.0, help="Timeout in seconds"),
+    poll_interval: float = typer.Option(1.0, help="Polling interval in seconds"),
+) -> None:
+    client = _client(ctx)
+    build = client.wait_for_build(
+        build_id,
+        timeout_seconds=timeout,
+        poll_interval_seconds=poll_interval,
+    )
+    _emit(build)
+    if build.get("status") != "published":
+        raise typer.Exit(code=1)
 
 
 # --- API Keys ---
@@ -440,6 +621,16 @@ def build(
     client = _client(ctx)
     if module_ref is not None:
         loaded, packaged = _load_packaged(module_ref)
+        console.print(
+            f"Packaging {len(packaged.included_paths)} files, "
+            f"excluding {len(packaged.excluded_paths)} paths, "
+            f"archive={packaged.archive_size_bytes} bytes"
+        )
+        for path in packaged.included_paths[:10]:
+            console.print(f" include: {path}")
+        if packaged.excluded_paths:
+            for path in packaged.excluded_paths[:5]:
+                console.print(f" exclude: {path}")
         staged = client.upload_build_context(
             {
                 "context_archive_b64": packaged.archive_b64,
@@ -456,6 +647,9 @@ def build(
             for entry in client.stream_build_logs(result["build_id"], follow=True):
                 console.print(_render_build_log(entry))
             result = client.wait_for_build(result["build_id"])
+            if result.get("status") != "published":
+                _emit(result)
+                raise typer.Exit(code=1)
         _emit(result)
         return
     if image is None or context_uri is None:
@@ -505,6 +699,9 @@ def deploy(
         )
         if wait:
             deployment = client.wait_for_deployment(deployment["deployment_id"])
+            if str(deployment.get("state", "")).lower() != "ready":
+                _emit(deployment)
+                raise typer.Exit(code=1)
         _emit(deployment)
         return
     if workload_id is None:
@@ -530,7 +727,63 @@ def deploy(
     )
     if wait:
         deployment = client.wait_for_deployment(deployment["deployment_id"])
+        if str(deployment.get("state", "")).lower() != "ready":
+            _emit(deployment)
+            raise typer.Exit(code=1)
     _emit(deployment)
+
+
+deployments_app = typer.Typer(help="Manage deployments")
+app.add_typer(deployments_app, name="deployments")
+
+
+@deployments_app.command("list", help="List deployments")
+def deployments_list(ctx: typer.Context) -> None:
+    client = _client(ctx)
+    _render_deployment_table(client.list_deployments())
+
+
+@deployments_app.command("get", help="Get a deployment by ID")
+def deployments_get(
+    ctx: typer.Context,
+    deployment_id: str = typer.Argument(..., help="Deployment ID"),
+) -> None:
+    client = _client(ctx)
+    _emit(client.get_deployment(deployment_id))
+
+
+@deployments_app.command("update", help="Update a deployment")
+def deployments_update(
+    ctx: typer.Context,
+    deployment_id: str = typer.Argument(..., help="Deployment ID"),
+    requested_instances: int | None = typer.Option(None, help="Requested instances"),
+    fee_acknowledged: bool | None = typer.Option(None, "--fee-acknowledged/--fee-unacknowledged", help="Deployment fee acknowledgment"),
+) -> None:
+    client = _client(ctx)
+    payload: dict[str, Any] = {}
+    if requested_instances is not None:
+        payload["requested_instances"] = requested_instances
+    if fee_acknowledged is not None:
+        payload["fee_acknowledged"] = fee_acknowledged
+    _emit(client.update_deployment(deployment_id, payload))
+
+
+@deployments_app.command("wait", help="Wait for a deployment to reach a terminal or ready state")
+def deployments_wait(
+    ctx: typer.Context,
+    deployment_id: str = typer.Argument(..., help="Deployment ID"),
+    timeout: float = typer.Option(600.0, help="Timeout in seconds"),
+    poll_interval: float = typer.Option(2.0, help="Polling interval in seconds"),
+) -> None:
+    client = _client(ctx)
+    deployment = client.wait_for_deployment(
+        deployment_id,
+        timeout_seconds=timeout,
+        poll_interval_seconds=poll_interval,
+    )
+    _emit(deployment)
+    if str(deployment.get("state", "")).lower() != "ready":
+        raise typer.Exit(code=1)
 
 
 # --- Invoke ---
@@ -548,10 +801,10 @@ def run(
     }
     client = _client(ctx)
     if stream:
-        for line in client.invoke_stream(payload):
+        for line in client.invoke_workload(loaded.workload.invocation_model, message=message, stream=True):  # type: ignore[arg-type]
             print(line)
     else:
-        _emit(client.invoke(payload))
+        _emit(client.invoke_workload(loaded.workload.invocation_model, message=message))
 
 
 @app.command(help="Invoke chat completion")
@@ -574,7 +827,19 @@ def invoke(
 
 
 def main() -> None:
-    app()
+    try:
+        app()
+    except GreenferenceHTTPError as exc:
+        status = f"HTTP {exc.status_code}" if exc.status_code is not None else "HTTP error"
+        detail = f": {exc.body}" if exc.body else ""
+        console.print(f"{status}: {exc}{detail}", style="red")
+        raise typer.Exit(code=1) from exc
+    except GreenferenceTimeoutError as exc:
+        console.print(f"Request timed out: {exc}", style="red")
+        raise typer.Exit(code=1) from exc
+    except GreenferenceConnectionError as exc:
+        console.print(f"Connection failed: {exc}", style="red")
+        raise typer.Exit(code=1) from exc
 
 
 if __name__ == "__main__":

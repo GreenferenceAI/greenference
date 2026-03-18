@@ -48,10 +48,27 @@ class NodeSelector:
 
 
 @dataclass(slots=True)
+class RuntimeConfig:
+    runtime_kind: str = "hf-causal-lm"
+    model_identifier: str = "sshleifer/tiny-gpt2"
+    model_revision: str | None = None
+    tokenizer_identifier: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "runtime_kind": self.runtime_kind,
+            "model_identifier": self.model_identifier,
+            "model_revision": self.model_revision,
+            "tokenizer_identifier": self.tokenizer_identifier,
+        }
+
+
+@dataclass(slots=True)
 class Workload:
     name: str
     image: str | Image
     node_selector: NodeSelector = field(default_factory=NodeSelector)
+    runtime: RuntimeConfig | None = None
     display_name: str | None = None
     tagline: str = ""
     readme: str = ""
@@ -72,6 +89,24 @@ class Workload:
     kind: str = "inference"
     security_tier: str = "standard"
     context_paths: list[str] = field(default_factory=list)
+    include_paths: list[str] = field(default_factory=list)
+    exclude_patterns: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.include_paths:
+            self.context_paths = [*self.context_paths, *self.include_paths]
+        if self.runtime is None:
+            self.runtime = RuntimeConfig(
+                runtime_kind=self.runtime_kind,
+                model_identifier=self.model_identifier,
+                model_revision=self.model_revision,
+                tokenizer_identifier=self.tokenizer_identifier,
+            )
+        else:
+            self.runtime_kind = self.runtime.runtime_kind
+            self.model_identifier = self.runtime.model_identifier
+            self.model_revision = self.runtime.model_revision
+            self.tokenizer_identifier = self.runtime.tokenizer_identifier
 
     @property
     def image_ref(self) -> str:
@@ -114,12 +149,7 @@ class Workload:
             "security_tier": self.security_tier,
             "pricing_class": self.pricing_class,
             "requirements": self.node_selector.to_requirements_payload(),
-            "runtime": {
-                "runtime_kind": self.runtime_kind,
-                "model_identifier": self.model_identifier,
-                "model_revision": self.model_revision,
-                "tokenizer_identifier": self.tokenizer_identifier,
-            },
+            "runtime": self.runtime.to_payload() if self.runtime is not None else RuntimeConfig().to_payload(),
             "lifecycle": {
                 "scaling_threshold": self.scaling_threshold,
                 "shutdown_after_seconds": self.shutdown_after_seconds,

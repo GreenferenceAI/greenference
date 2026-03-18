@@ -54,6 +54,32 @@ def save_config(*, api_base_url: str | None = None, api_key: str | None = None, 
     return load_file_config(config_path)
 
 
+def init_config(*, api_base_url: str | None = None, api_key: str | None = None, path: Path | None = None) -> Config:
+    return save_config(api_base_url=api_base_url, api_key=api_key, path=path)
+
+
+def unset_config(*, api_base_url: bool = False, api_key: bool = False, path: Path | None = None) -> Config:
+    config_path = path or default_config_path()
+    current = load_file_config(config_path)
+    parser = ConfigParser()
+    parser["api"] = {
+        "base_url": ("http://127.0.0.1:8000" if api_base_url else current.api_base_url).rstrip("/"),
+        "api_key": "" if api_key else (current.api_key or ""),
+    }
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with config_path.open("w", encoding="utf-8") as outfile:
+        parser.write(outfile)
+    return load_file_config(config_path)
+
+
+def mask_secret(value: str | None) -> str | None:
+    if value is None or value == "":
+        return value
+    if len(value) <= 6:
+        return "*" * len(value)
+    return f"{value[:4]}...{value[-2:]}"
+
+
 def get_config() -> Config:
     """Load config from file and env vars with env taking precedence."""
     config = load_file_config()

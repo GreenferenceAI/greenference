@@ -5,6 +5,12 @@ from __future__ import annotations
 from greenference.image import Image
 from greenference.workload import NodeSelector, Workload, WorkloadPack
 
+__all__ = [
+    "build_inference_workload",
+    "build_vllm_workload",
+    "build_diffusion_workload",
+]
+
 
 def build_inference_workload(
     *,

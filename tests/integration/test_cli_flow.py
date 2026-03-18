@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from urllib.error import HTTPError
 
+import click
 import pytest
 
 from greenference import client as client_module
@@ -82,6 +83,32 @@ def _fake_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
                 "status": "published",
             }
         )
+    if path.endswith("/platform/builds") and method == "GET":
+        return _FakeResponse(
+            [
+                {
+                    "build_id": "build-1",
+                    "image": "demo/echo:latest",
+                    "status": "published",
+                    "executor_name": "remote-http-builder",
+                }
+            ]
+        )
+    if path.endswith("/platform/builds/build-1") and method == "GET":
+        return _FakeResponse(
+            {
+                "build_id": "build-1",
+                "image": "demo/echo:latest",
+                "status": "published",
+                "executor_name": "remote-http-builder",
+            }
+        )
+    if "/platform/builds/" in path and "/logs/stream" in path and method == "GET":
+        return _FakeResponse(
+            'data: {"stage":"staging","message":"staged context"}\n\n'
+            'data: {"stage":"building","message":"remote build submitted"}\n\n'
+            'data: {"status":"published","build_id":"build-1"}\n'
+        )
     if "/platform/images/" in path and path.endswith("/history"):
         return _FakeResponse(
             [
@@ -100,6 +127,7 @@ def _fake_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
                 "workload_id": "wl-1",
                 "name": payload["name"],
                 "image": payload["image"],
+                "public": payload.get("public", False),
             }
         )
     if path.endswith("/platform/workloads/wl-1") and method == "PATCH":
@@ -108,7 +136,21 @@ def _fake_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
                 "workload_id": "wl-1",
                 "name": "demo",
                 "display_name": payload.get("display_name", "demo"),
+                "readme": payload.get("readme"),
+                "logo_uri": payload.get("logo_uri"),
+                "tags": payload.get("tags", ["existing"]),
+                "workload_alias": None if payload.get("clear_workload_alias") else payload.get("workload_alias", "demo"),
+                "pricing_class": payload.get("pricing_class", "standard"),
                 "public": payload.get("public", False),
+            }
+        )
+    if path.endswith("/platform/workloads/wl-1/utilization") and method == "GET":
+        return _FakeResponse(
+            {
+                "workload_id": "wl-1",
+                "active_deployments": 1,
+                "total_request_count": 42,
+                "total_compute_seconds": 12.5,
             }
         )
     if path.endswith("/platform/workloads/wl-1/shares") and method == "POST":
@@ -136,11 +178,33 @@ def _fake_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
             'data: {"workload_id":"wl-1","status":"warmup_started"}\n\ndata: {"workload_id":"wl-1","status":"warmup_complete"}\n'
         )
     if path.endswith("/platform/deployments"):
+        if method == "GET":
+            return _FakeResponse(
+                [
+                    {
+                        "deployment_id": "dep-1",
+                        "workload_id": "wl-1",
+                        "state": "ready",
+                        "requested_instances": 1,
+                        "endpoint": "http://miner.local/v1/chat/completions",
+                    }
+                ]
+            )
         return _FakeResponse(
             {
                 "deployment_id": "dep-1",
                 "workload_id": payload["workload_id"],
                 "state": "scheduled",
+            }
+        )
+    if path.endswith("/platform/deployments/dep-1") and method == "PATCH":
+        return _FakeResponse(
+            {
+                "deployment_id": "dep-1",
+                "workload_id": "wl-1",
+                "state": "ready",
+                "requested_instances": payload.get("requested_instances", 1),
+                "fee_acknowledged": payload.get("fee_acknowledged", True),
             }
         )
     if path.endswith("/platform/deployments/dep-1") and method == "GET":
@@ -207,8 +271,40 @@ workload = Workload(
         ["greenference", "--base-url", base_url, "register", "--username", "alice", "--email", "alice@example.com"],
         ["greenference", "--base-url", base_url, "keys", "create", "--name", "default", "--user-id", "user-1"],
         ["greenference", "--base-url", base_url, "build", module_ref],
+        ["greenference", "--base-url", base_url, "workloads", "create", module_ref, "--public"],
+        ["greenference", "--base-url", base_url, "images", "history", "demo/echo:latest"],
+        ["greenference", "--base-url", base_url, "builds", "list"],
+        ["greenference", "--base-url", base_url, "builds", "get", "build-1"],
+        ["greenference", "--base-url", base_url, "builds", "logs", "build-1"],
+        ["greenference", "--base-url", base_url, "builds", "wait", "build-1"],
         ["greenference", "--base-url", base_url, "deploy", module_ref, "--accept-fee", "--wait"],
-        ["greenference", "--base-url", base_url, "workloads", "update", "wl-1", "--display-name", "Updated", "--public"],
+        ["greenference", "--base-url", base_url, "deployments", "list"],
+        ["greenference", "--base-url", base_url, "deployments", "get", "dep-1"],
+        ["greenference", "--base-url", base_url, "deployments", "update", "dep-1", "--requested-instances", "2"],
+        ["greenference", "--base-url", base_url, "deployments", "wait", "dep-1"],
+        [
+            "greenference",
+            "--base-url",
+            base_url,
+            "workloads",
+            "update",
+            "wl-1",
+            "--display-name",
+            "Updated",
+            "--readme",
+            "README",
+            "--logo-uri",
+            "https://example.com/logo.png",
+            "--tag",
+            "llm",
+            "--tag",
+            "chat",
+            "--clear-workload-alias",
+            "--pricing-class",
+            "premium",
+            "--public",
+        ],
+        ["greenference", "--base-url", base_url, "workloads", "utilization", "wl-1"],
         ["greenference", "--base-url", base_url, "workloads", "share", "wl-1", "--user-id", "user-2"],
         ["greenference", "--base-url", base_url, "workloads", "shares", "wl-1"],
         ["greenference", "--base-url", base_url, "workloads", "warmup", "wl-1"],
@@ -232,3 +328,156 @@ workload = Workload(
             sys.stdout = old_stdout
             sys.argv = old_argv
         assert stdout.getvalue().strip()
+
+
+def test_cli_wait_commands_exit_nonzero_for_failed_terminal_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_failed_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
+        if isinstance(target, str):
+            raise HTTPError(target, 404, "not found", hdrs=None, fp=None)
+        path = target.full_url
+        method = target.get_method()
+        if path.endswith("/platform/builds/build-failed") and method == "GET":
+            return _FakeResponse({"build_id": "build-failed", "status": "failed"})
+        if path.endswith("/platform/deployments/dep-failed") and method == "GET":
+            return _FakeResponse({"deployment_id": "dep-failed", "state": "failed"})
+        raise HTTPError(path, 404, "not found", hdrs=None, fp=None)
+
+    monkeypatch.setattr(client_module.request, "urlopen", fake_failed_urlopen)
+
+    for argv in (
+        ["greenference", "builds", "wait", "build-failed"],
+        ["greenference", "deployments", "wait", "dep-failed"],
+    ):
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 1
+        finally:
+            sys.argv = old_argv
+
+
+def test_cli_prints_http_errors_cleanly_and_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_http_error(target, timeout=None):  # type: ignore[no-untyped-def]
+        raise HTTPError(
+            target.full_url,
+            403,
+            "forbidden",
+            hdrs=None,
+            fp=io.BytesIO(b'{"detail":"permission denied"}'),
+        )
+
+    monkeypatch.setattr(client_module.request, "urlopen", fake_http_error)
+
+    old_argv = sys.argv
+    sys.argv = ["greenference", "workloads", "get", "wl-1"]
+    try:
+        with pytest.raises(click.exceptions.Exit):
+            main()
+    finally:
+        sys.argv = old_argv
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "HTTP 403" in combined
+    assert "permission denied" in combined
+
+
+def test_client_build_log_entries_capture_terminal_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(client_module.request, "urlopen", _fake_urlopen)
+    client = client_module.GreenferenceClient(base_url="http://greenference.test")
+
+    entries = list(client.stream_build_log_entries("build-1", follow=False))
+
+    assert entries[-1].terminal is True
+    assert entries[-1].status == "published"
+
+
+def test_cli_share_and_invoke_failures_exit_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_forbidden_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
+        path = target.full_url
+        if path.endswith("/platform/workloads/wl-1/shares"):
+            raise HTTPError(
+                path,
+                403,
+                "forbidden",
+                hdrs=None,
+                fp=io.BytesIO(b'{"detail":"share denied"}'),
+            )
+        if path.endswith("/v1/chat/completions"):
+            raise HTTPError(
+                path,
+                403,
+                "forbidden",
+                hdrs=None,
+                fp=io.BytesIO(b'{"detail":"invoke denied"}'),
+            )
+        raise HTTPError(path, 404, "not found", hdrs=None, fp=None)
+
+    monkeypatch.setattr(client_module.request, "urlopen", fake_forbidden_urlopen)
+
+    for argv, expected in (
+        (["greenference", "workloads", "share", "wl-1", "--user-id", "user-2"], "share denied"),
+        (["greenference", "invoke", "--model", "wl-1", "--message", "hi"], "invoke denied"),
+    ):
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            with pytest.raises(click.exceptions.Exit):
+                main()
+        finally:
+            sys.argv = old_argv
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert expected in combined
+
+
+def test_cli_deploy_fee_rejection_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_fee_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
+        path = target.full_url
+        method = target.get_method()
+        payload = json.loads(target.data.decode()) if target.data else {}
+        if path.endswith("/platform/workloads"):
+            return _FakeResponse({"workload_id": "wl-1", "name": payload["name"], "image": payload["image"]})
+        if path.endswith("/platform/deployments"):
+            raise HTTPError(
+                path,
+                402,
+                "payment required",
+                hdrs=None,
+                fp=io.BytesIO(b'{"detail":"fee acknowledgement required"}'),
+            )
+        raise HTTPError(path, 404, "not found", hdrs=None, fp=None)
+
+    monkeypatch.setattr(client_module.request, "urlopen", fake_fee_urlopen)
+
+    old_argv = sys.argv
+    sys.argv = [
+        "greenference",
+        "deploy",
+        "--name",
+        "demo",
+        "--image",
+        "demo/echo:latest",
+    ]
+    try:
+        with pytest.raises(click.exceptions.Exit):
+            main()
+    finally:
+        sys.argv = old_argv
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "fee acknowledgement required" in combined
