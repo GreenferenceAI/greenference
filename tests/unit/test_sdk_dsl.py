@@ -10,6 +10,7 @@ from greenference import Image, NodeSelector, Workload
 from greenference.config import get_config, save_config
 from greenference.loader import load_workload
 from greenference.packaging import package_workload
+from greenference.templates import build_vllm_workload
 
 
 def test_image_workload_loader_and_packaging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,3 +65,24 @@ def test_config_file_and_env_precedence(tmp_path: Path, monkeypatch: pytest.Monk
 
     assert resolved.api_base_url == "http://env.example"
     assert resolved.api_key == "env-key"
+
+
+def test_template_builder_populates_rich_workload_defaults() -> None:
+    workload_pack = build_vllm_workload(
+        username="alice",
+        name="llm-demo",
+        model_identifier="meta-llama/Llama-3.2-1B-Instruct",
+        display_name="LLM Demo",
+        workload_alias="llm-demo-alias",
+        tags=["llm", "chat"],
+        context_paths=["README.md"],
+    )
+
+    payload = workload_pack.workload.to_workload_payload()
+
+    assert workload_pack.template == "inference"
+    assert payload["display_name"] == "LLM Demo"
+    assert payload["workload_alias"] == "llm-demo-alias"
+    assert payload["runtime"]["runtime_kind"] == "vllm"
+    assert payload["lifecycle"]["warmup_enabled"] is True
+    assert workload_pack.workload.context_paths == ["README.md"]

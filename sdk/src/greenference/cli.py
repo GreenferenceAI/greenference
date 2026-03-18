@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 import typer
@@ -63,10 +62,15 @@ def _ensure_built(
     published = next((item for item in history if item.get("status") == "published"), None)
     if published is not None:
         return published
+    staged = client.upload_build_context(
+        {
+            "context_archive_b64": packaged.archive_b64,
+            "context_archive_name": packaged.archive_name,
+        }
+    )
     build = client.build(
         loaded.workload.to_build_payload(
-            context_archive_b64=packaged.archive_b64,
-            context_archive_name=packaged.archive_name,
+            context_uri=staged["context_uri"],
             public=loaded.workload.public or public,
         )
     )
@@ -74,6 +78,25 @@ def _ensure_built(
         for entry in client.stream_build_logs(build["build_id"], follow=True):
             console.print(_render_build_log(entry))
     return client.wait_for_build(build["build_id"])
+
+
+def _render_workload_table(items: list[dict]) -> None:
+    if not items:
+        console.print("No workloads found.")
+        return
+    table = Table(title="Workloads")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name")
+    table.add_column("Image")
+    table.add_column("Kind")
+    for workload in items:
+        table.add_row(
+            workload.get("workload_id", ""),
+            workload.get("name", ""),
+            workload.get("image", ""),
+            workload.get("kind", ""),
+        )
+    console.print(table)
 
 
 @app.callback()
@@ -136,23 +159,7 @@ app.add_typer(workloads_app, name="workloads")
 @workloads_app.command("list", help="List workloads")
 def workloads_list(ctx: typer.Context) -> None:
     client = _client(ctx)
-    items = client.list_workloads()
-    if not items:
-        console.print("No workloads found.")
-        return
-    table = Table(title="Workloads")
-    table.add_column("ID", style="cyan")
-    table.add_column("Name")
-    table.add_column("Image")
-    table.add_column("Kind")
-    for w in items:
-        table.add_row(
-            w.get("workload_id", ""),
-            w.get("name", ""),
-            w.get("image", ""),
-            w.get("kind", ""),
-        )
-    console.print(table)
+    _render_workload_table(client.list_workloads())
 
 
 @workloads_app.command("get", help="Get a workload by ID")
@@ -173,12 +180,86 @@ def workloads_delete(
     _emit(client.delete_workload(workload_id))
 
 
+@workloads_app.command("update", help="Update workload metadata and lifecycle policy")
+def workloads_update(
+    ctx: typer.Context,
+    workload_id: str = typer.Argument(..., help="Workload ID"),
+    display_name: str | None = typer.Option(None, help="Display name"),
+    public: bool | None = typer.Option(None, "--public/--private", help="Visibility override"),
+    workload_alias: str | None = typer.Option(None, help="Alias used for invocation routing"),
+    ingress_host: str | None = typer.Option(None, help="Ingress host"),
+    scaling_threshold: float | None = typer.Option(None, help="Scale-up threshold"),
+    shutdown_after_seconds: int | None = typer.Option(None, help="Idle shutdown timeout"),
+    warmup_enabled: bool | None = typer.Option(None, "--warmup-enabled/--warmup-disabled", help="Warmup toggle"),
+    warmup_path: str | None = typer.Option(None, help="Warmup path"),
+) -> None:
+    client = _client(ctx)
+    payload: dict[str, Any] = {}
+    if display_name is not None:
+        payload["display_name"] = display_name
+    if public is not None:
+        payload["public"] = public
+    if workload_alias is not None:
+        payload["workload_alias"] = workload_alias
+    if ingress_host is not None:
+        payload["ingress_host"] = ingress_host
+    lifecycle: dict[str, Any] = {}
+    if scaling_threshold is not None:
+        lifecycle["scaling_threshold"] = scaling_threshold
+    if shutdown_after_seconds is not None:
+        lifecycle["shutdown_after_seconds"] = shutdown_after_seconds
+    if warmup_enabled is not None:
+        lifecycle["warmup_enabled"] = warmup_enabled
+    if warmup_path is not None:
+        lifecycle["warmup_path"] = warmup_path
+    if lifecycle:
+        payload["lifecycle"] = lifecycle
+    _emit(client.update_workload(workload_id, payload))
+
+
+@workloads_app.command("share", help="Share a workload with another user")
+def workloads_share(
+    ctx: typer.Context,
+    workload_id: str = typer.Argument(..., help="Workload ID"),
+    user_id: str = typer.Option(..., "--user-id", help="User ID to share with"),
+    permission: str = typer.Option("invoke", help="Permission name"),
+) -> None:
+    client = _client(ctx)
+    _emit(
+        client.share_workload(
+            workload_id,
+            {"shared_with_user_id": user_id, "permission": permission},
+        )
+    )
+
+
+@workloads_app.command("shares", help="List workload shares")
+def workloads_shares(
+    ctx: typer.Context,
+    workload_id: str = typer.Argument(..., help="Workload ID"),
+) -> None:
+    client = _client(ctx)
+    _emit(client.list_workload_shares(workload_id))
+
+
+@workloads_app.command("warmup", help="Warm up a workload and stream events")
+def workloads_warmup(
+    ctx: typer.Context,
+    workload_id: str = typer.Argument(..., help="Workload ID"),
+) -> None:
+    client = _client(ctx)
+    for event in client.workload_warmup(workload_id):
+        _emit(event)
+
+
 @workloads_app.command("create-vllm", help="Create a VLLM workload from HuggingFace model")
 def workloads_create_vllm(
     ctx: typer.Context,
     model: str = typer.Option(..., help="HuggingFace model (org/model)"),
     username: str = typer.Option("greenference", help="Image owner/namespace"),
     name: str | None = typer.Option(None, help="Workload name"),
+    display_name: str | None = typer.Option(None, help="Display name"),
+    workload_alias: str | None = typer.Option(None, help="Alias used for invocation routing"),
 ) -> None:
     from greenference.templates import build_vllm_workload
 
@@ -187,6 +268,8 @@ def workloads_create_vllm(
         username=username,
         name=name or model.rsplit("/", 1)[-1].replace(".", "-"),
         model_identifier=model,
+        display_name=display_name,
+        workload_alias=workload_alias,
     )
     _emit(client.create_workload(workload.workload.to_workload_payload()))
 
@@ -197,11 +280,19 @@ def workloads_create_diffusion(
     model: str = typer.Option(..., help="Model identifier"),
     username: str = typer.Option("greenference", help="Image owner/namespace"),
     name: str = typer.Option(..., help="Workload name"),
+    display_name: str | None = typer.Option(None, help="Display name"),
+    workload_alias: str | None = typer.Option(None, help="Alias used for invocation routing"),
 ) -> None:
     from greenference.templates import build_diffusion_workload
 
     client = _client(ctx)
-    workload = build_diffusion_workload(username=username, name=name, model_identifier=model)
+    workload = build_diffusion_workload(
+        username=username,
+        name=name,
+        model_identifier=model,
+        display_name=display_name,
+        workload_alias=workload_alias,
+    )
     _emit(client.create_workload(workload.workload.to_workload_payload()))
 
 
@@ -349,10 +440,15 @@ def build(
     client = _client(ctx)
     if module_ref is not None:
         loaded, packaged = _load_packaged(module_ref)
+        staged = client.upload_build_context(
+            {
+                "context_archive_b64": packaged.archive_b64,
+                "context_archive_name": packaged.archive_name,
+            }
+        )
         result = client.build(
             loaded.workload.to_build_payload(
-                context_archive_b64=packaged.archive_b64,
-                context_archive_name=packaged.archive_name,
+                context_uri=staged["context_uri"],
                 public=loaded.workload.public or public,
             )
         )
@@ -400,15 +496,16 @@ def deploy(
                 console.print(f"image build did not publish successfully: {build.get('status')}")
                 raise typer.Exit(code=1)
         workload = client.create_workload(loaded.workload.to_workload_payload())
-        _emit(
-            client.deploy(
-                {
-                    "workload_id": workload["workload_id"],
-                    "requested_instances": requested_instances,
-                    "accept_fee": accept_fee,
-                }
-            )
+        deployment = client.deploy(
+            {
+                "workload_id": workload["workload_id"],
+                "requested_instances": requested_instances,
+                "accept_fee": accept_fee,
+            }
         )
+        if wait:
+            deployment = client.wait_for_deployment(deployment["deployment_id"])
+        _emit(deployment)
         return
     if workload_id is None:
         if not name or not image:
@@ -424,15 +521,16 @@ def deploy(
             }
         )
         workload_id = workload["workload_id"]
-    _emit(
-        client.deploy(
-            {
-                "workload_id": workload_id,
-                "requested_instances": requested_instances,
-                "accept_fee": accept_fee,
-            }
-        )
+    deployment = client.deploy(
+        {
+            "workload_id": workload_id,
+            "requested_instances": requested_instances,
+            "accept_fee": accept_fee,
+        }
     )
+    if wait:
+        deployment = client.wait_for_deployment(deployment["deployment_id"])
+    _emit(deployment)
 
 
 # --- Invoke ---

@@ -60,8 +60,8 @@ class Workload:
     workload_alias: str | None = None
     ingress_host: str | None = None
     pricing_class: str = "standard"
-    runtime_kind: str = "local-cpu-textgen"
-    model_identifier: str = "greenference-local-cpu-textgen"
+    runtime_kind: str = "hf-causal-lm"
+    model_identifier: str = "sshleifer/tiny-gpt2"
     model_revision: str | None = None
     tokenizer_identifier: str | None = None
     scaling_threshold: float = 0.75
@@ -86,14 +86,12 @@ class Workload:
     def to_build_payload(
         self,
         *,
-        context_archive_b64: str,
-        context_archive_name: str,
+        context_uri: str,
         public: bool | None = None,
     ) -> dict[str, Any]:
         return {
             "image": self.image_ref,
-            "context_archive_b64": context_archive_b64,
-            "context_archive_name": context_archive_name,
+            "context_uri": context_uri,
             "dockerfile_path": "Dockerfile",
             "display_name": self.display_name,
             "readme": self.readme,

@@ -78,8 +78,8 @@ class WorkloadRequirements(BaseModel):
 
 
 class InferenceRuntimeConfig(BaseModel):
-    runtime_kind: str = Field(default="local-cpu-textgen", min_length=1, max_length=64)
-    model_identifier: str = Field(default="greenference-local-cpu-textgen", min_length=1, max_length=255)
+    runtime_kind: str = Field(default="hf-causal-lm", min_length=1, max_length=64)
+    model_identifier: str = Field(default="sshleifer/tiny-gpt2", min_length=1, max_length=255)
     model_revision: str | None = Field(default=None, min_length=1, max_length=128)
     tokenizer_identifier: str | None = Field(default=None, min_length=1, max_length=255)
 
@@ -384,6 +384,18 @@ class BuildRequest(BaseModel):
     logo_uri: str | None = Field(default=None, min_length=1, max_length=1024)
     tags: list[str] = Field(default_factory=list)
     public: bool = False
+
+
+class BuildContextUploadRequest(BaseModel):
+    context_archive_b64: str = Field(min_length=1)
+    context_archive_name: str = Field(min_length=1, max_length=255)
+
+
+class BuildContextUploadRecord(BaseModel):
+    context_uri: str
+    archive_name: str
+    size_bytes: int = Field(ge=0)
+    uploaded_at: datetime = Field(default_factory=utcnow)
 
 
 class BuildRecord(BaseModel):

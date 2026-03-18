@@ -56,6 +56,14 @@ def _fake_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
                 "secret": "gk_demo",
             }
         )
+    if path.endswith("/platform/images/contexts"):
+        return _FakeResponse(
+            {
+                "context_uri": "file:///tmp/greenference-build-context.zip",
+                "archive_name": payload["context_archive_name"],
+                "size_bytes": 128,
+            }
+        )
     if path.endswith("/platform/images") and method == "GET":
         return _FakeResponse(
             [
@@ -94,12 +102,54 @@ def _fake_urlopen(target, timeout=None):  # type: ignore[no-untyped-def]
                 "image": payload["image"],
             }
         )
+    if path.endswith("/platform/workloads/wl-1") and method == "PATCH":
+        return _FakeResponse(
+            {
+                "workload_id": "wl-1",
+                "name": "demo",
+                "display_name": payload.get("display_name", "demo"),
+                "public": payload.get("public", False),
+            }
+        )
+    if path.endswith("/platform/workloads/wl-1/shares") and method == "POST":
+        return _FakeResponse(
+            {
+                "share_id": "share-1",
+                "workload_id": "wl-1",
+                "shared_with_user_id": payload["shared_with_user_id"],
+                "permission": payload.get("permission", "invoke"),
+            }
+        )
+    if path.endswith("/platform/workloads/wl-1/shares") and method == "GET":
+        return _FakeResponse(
+            [
+                {
+                    "share_id": "share-1",
+                    "workload_id": "wl-1",
+                    "shared_with_user_id": "user-2",
+                    "permission": "invoke",
+                }
+            ]
+        )
+    if path.endswith("/platform/workloads/wl-1/warmup") and method == "GET":
+        return _FakeResponse(
+            'data: {"workload_id":"wl-1","status":"warmup_started"}\n\ndata: {"workload_id":"wl-1","status":"warmup_complete"}\n'
+        )
     if path.endswith("/platform/deployments"):
         return _FakeResponse(
             {
                 "deployment_id": "dep-1",
                 "workload_id": payload["workload_id"],
                 "state": "scheduled",
+            }
+        )
+    if path.endswith("/platform/deployments/dep-1") and method == "GET":
+        return _FakeResponse(
+            {
+                "deployment_id": "dep-1",
+                "workload_id": "wl-1",
+                "state": "ready",
+                "requested_instances": 1,
             }
         )
     if path.endswith("/v1/chat/completions"):
@@ -157,7 +207,11 @@ workload = Workload(
         ["greenference", "--base-url", base_url, "register", "--username", "alice", "--email", "alice@example.com"],
         ["greenference", "--base-url", base_url, "keys", "create", "--name", "default", "--user-id", "user-1"],
         ["greenference", "--base-url", base_url, "build", module_ref],
-        ["greenference", "--base-url", base_url, "deploy", module_ref, "--accept-fee"],
+        ["greenference", "--base-url", base_url, "deploy", module_ref, "--accept-fee", "--wait"],
+        ["greenference", "--base-url", base_url, "workloads", "update", "wl-1", "--display-name", "Updated", "--public"],
+        ["greenference", "--base-url", base_url, "workloads", "share", "wl-1", "--user-id", "user-2"],
+        ["greenference", "--base-url", base_url, "workloads", "shares", "wl-1"],
+        ["greenference", "--base-url", base_url, "workloads", "warmup", "wl-1"],
         ["greenference", "--base-url", base_url, "run", module_ref, "--message", "hi"],
         ["greenference", "--base-url", base_url, "invoke", "--model", "wl-1", "--message", "hi", "--stream"],
         ["greenference", "--base-url", base_url, "workloads", "list"],

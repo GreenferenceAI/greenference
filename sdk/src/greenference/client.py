@@ -176,6 +176,9 @@ class GreenferenceClient:
         return self._get(f"/platform/users/{user_id}/balance")  # type: ignore[return-value]
 
     # --- Images / Builds ---
+    def upload_build_context(self, payload: dict) -> dict:
+        return self._post("/platform/images/contexts", payload)  # type: ignore[return-value]
+
     def build(self, payload: dict) -> dict:
         return self._post("/platform/images", payload)  # type: ignore[return-value]
 
@@ -222,6 +225,23 @@ class GreenferenceClient:
                 raise GreenferenceTimeoutError(f"timed out waiting for build {build_id}")
             time.sleep(poll_interval_seconds)
 
+    def wait_for_deployment(
+        self,
+        deployment_id: str,
+        *,
+        timeout_seconds: float = 600.0,
+        poll_interval_seconds: float = 2.0,
+    ) -> dict:
+        started = time.monotonic()
+        while True:
+            deployment = self.get_deployment(deployment_id)
+            state = str(deployment.get("state", "")).lower()
+            if state in {"ready", "failed", "terminated"}:
+                return deployment
+            if time.monotonic() - started > timeout_seconds:
+                raise GreenferenceTimeoutError(f"timed out waiting for deployment {deployment_id}")
+            time.sleep(poll_interval_seconds)
+
     # --- Workloads ---
     def create_workload(self, payload: dict) -> dict:
         return self._post("/platform/workloads", payload)  # type: ignore[return-value]
@@ -240,6 +260,12 @@ class GreenferenceClient:
 
     def get_workload_utilization(self, workload_id: str) -> dict:
         return self._get(f"/platform/workloads/{workload_id}/utilization")  # type: ignore[return-value]
+
+    def share_workload(self, workload_id: str, payload: dict) -> dict:
+        return self._post(f"/platform/workloads/{workload_id}/shares", payload)  # type: ignore[return-value]
+
+    def list_workload_shares(self, workload_id: str) -> list[dict]:
+        return self._get(f"/platform/workloads/{workload_id}/shares")  # type: ignore[return-value]
 
     def workload_warmup(self, workload_id: str) -> Iterator[dict]:
         """Stream warmup events (SSE) for a workload."""
