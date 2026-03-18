@@ -35,10 +35,22 @@ class UserRegistrationRequest(BaseModel):
     email: str | None = None
 
 
+class UserProfileUpdateRequest(BaseModel):
+    email: str | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    bio: str | None = Field(default=None, max_length=1024)
+    website: str | None = Field(default=None, min_length=1, max_length=255)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class UserRecord(BaseModel):
     user_id: str = Field(default_factory=lambda: str(uuid4()))
     username: str
     email: str | None = None
+    display_name: str | None = None
+    bio: str | None = None
+    website: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -52,20 +64,33 @@ class WorkloadRequirements(BaseModel):
     supported_gpu_models: list[str] = Field(default_factory=list)
 
 
+class InferenceRuntimeConfig(BaseModel):
+    runtime_kind: str = Field(default="local-cpu-textgen", min_length=1, max_length=64)
+    model_identifier: str = Field(default="greenference-local-cpu-textgen", min_length=1, max_length=255)
+    model_revision: str | None = Field(default=None, min_length=1, max_length=128)
+    tokenizer_identifier: str | None = Field(default=None, min_length=1, max_length=255)
+
+
 class WorkloadCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     image: str = Field(min_length=1)
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    readme: str | None = Field(default=None, max_length=20000)
+    logo_uri: str | None = Field(default=None, min_length=1, max_length=1024)
+    tags: list[str] = Field(default_factory=list)
     workload_alias: str | None = Field(default=None, min_length=1, max_length=100)
     ingress_host: str | None = Field(default=None, min_length=1, max_length=255)
     kind: WorkloadKind = WorkloadKind.INFERENCE
     security_tier: SecurityTier = SecurityTier.STANDARD
     pricing_class: str = Field(default="standard", min_length=1, max_length=32)
     requirements: WorkloadRequirements = Field(default_factory=WorkloadRequirements)
+    runtime: InferenceRuntimeConfig = Field(default_factory=InferenceRuntimeConfig)
     public: bool = False
 
 
 class WorkloadSpec(WorkloadCreateRequest):
     workload_id: str = Field(default_factory=lambda: str(uuid4()))
+    owner_user_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -77,6 +102,7 @@ class DeploymentCreateRequest(BaseModel):
 class DeploymentRecord(BaseModel):
     deployment_id: str = Field(default_factory=lambda: str(uuid4()))
     workload_id: str
+    owner_user_id: str | None = None
     hotkey: str | None = None
     node_id: str | None = None
     state: DeploymentState = DeploymentState.PENDING
@@ -265,6 +291,9 @@ class InvocationRecord(BaseModel):
     hotkey: str
     model: str
     api_key_id: str | None = None
+    routed_host: str | None = None
+    resolution_basis: str | None = None
+    routing_reason: str | None = None
     stream: bool = False
     status: str = "succeeded"
     error_class: str | None = None
@@ -273,18 +302,55 @@ class InvocationRecord(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class UserSecretCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    value: str = Field(min_length=1, max_length=4096)
+
+
+class UserSecretRecord(BaseModel):
+    secret_id: str = Field(default_factory=lambda: str(uuid4()))
+    user_id: str
+    name: str
+    value: str
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class WorkloadShareCreateRequest(BaseModel):
+    shared_with_user_id: str = Field(min_length=1, max_length=64)
+    permission: str = Field(default="invoke", min_length=1, max_length=32)
+
+
+class WorkloadShareRecord(BaseModel):
+    share_id: str = Field(default_factory=lambda: str(uuid4()))
+    workload_id: str
+    owner_user_id: str
+    shared_with_user_id: str
+    permission: str = "invoke"
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class BuildRequest(BaseModel):
     image: str = Field(min_length=1)
     context_uri: str = Field(min_length=1)
     dockerfile_path: str = Field(default="Dockerfile", min_length=1)
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    readme: str | None = Field(default=None, max_length=20000)
+    logo_uri: str | None = Field(default=None, min_length=1, max_length=1024)
+    tags: list[str] = Field(default_factory=list)
     public: bool = False
 
 
 class BuildRecord(BaseModel):
     build_id: str = Field(default_factory=lambda: str(uuid4()))
     image: str
+    owner_user_id: str | None = None
     context_uri: str
     dockerfile_path: str
+    display_name: str | None = None
+    readme: str | None = None
+    logo_uri: str | None = None
+    tags: list[str] = Field(default_factory=list)
     public: bool = False
     status: str = "accepted"
     registry_repository: str | None = None
@@ -330,10 +396,46 @@ class BuildAttemptRecord(BaseModel):
     build_id: str
     attempt: int = Field(ge=1)
     status: str = "accepted"
+    restarted_from_attempt: int | None = None
+    restarted_from_job_id: str | None = None
+    restart_reason: str | None = None
     failure_class: str | None = None
     last_operation: str | None = None
     started_at: datetime = Field(default_factory=utcnow)
     finished_at: datetime | None = None
+
+
+class BuildJobRecord(BaseModel):
+    job_id: str = Field(default_factory=lambda: str(uuid4()))
+    build_id: str
+    attempt: int = Field(ge=1)
+    status: str = "queued"
+    current_stage: str = "accepted"
+    last_completed_stage: str | None = None
+    stage_state: dict[str, Any] = Field(default_factory=dict)
+    restarted_from_attempt: int | None = None
+    restarted_from_job_id: str | None = None
+    restart_reason: str | None = None
+    executor_name: str | None = None
+    failure_class: str | None = None
+    progress_message: str | None = None
+    recovery_count: int = Field(default=0, ge=0)
+    last_recovered_at: datetime | None = None
+    started_at: datetime = Field(default_factory=utcnow)
+    finished_at: datetime | None = None
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class BuildJobCheckpointRecord(BaseModel):
+    checkpoint_id: str = Field(default_factory=lambda: str(uuid4()))
+    job_id: str
+    build_id: str
+    attempt: int = Field(ge=1)
+    stage: str
+    status: str
+    message: str
+    recovered: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class BuildLogRecord(BaseModel):
