@@ -49,6 +49,12 @@ from greenference_protocol.models import (
     WorkloadShareCreateRequest,
     WorkloadShareRecord,
     WorkloadSpec,
+    PodConfig,
+    SSHAccessRecord,
+    ComputeRuntimeRecord,
+    VolumeRecord,
+    CollateralRecord,
+    ComputePlacementRecord,
 )
 
 __all__ = [
@@ -105,6 +111,12 @@ __all__ = [
     "WorkloadShareCreateRequest",
     "WorkloadShareRecord",
     "WorkloadSpec",
+    "PodConfig",
+    "SSHAccessRecord",
+    "ComputeRuntimeRecord",
+    "VolumeRecord",
+    "CollateralRecord",
+    "ComputePlacementRecord",
     "sign_payload",
     "verify_payload",
 ]

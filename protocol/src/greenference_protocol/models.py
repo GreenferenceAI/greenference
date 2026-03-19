@@ -107,6 +107,7 @@ class WorkloadCreateRequest(BaseModel):
     runtime: InferenceRuntimeConfig = Field(default_factory=InferenceRuntimeConfig)
     lifecycle: WorkloadLifecyclePolicy = Field(default_factory=WorkloadLifecyclePolicy)
     public: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkloadUpdateRequest(BaseModel):
@@ -502,6 +503,98 @@ class BuildLogRecord(BaseModel):
     stage: str
     message: str
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class PodConfig(BaseModel):
+    """Pod-specific config — Lium-style: template, SSH keys, volumes, TTL, GPU splitting."""
+
+    template: str | None = Field(default=None, max_length=64)
+    ssh_public_keys: list[str] = Field(default_factory=list)
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    volume_size_gb: int = Field(default=50, ge=1, le=2048)
+    gpu_fraction: float = Field(default=1.0, ge=0.0, le=1.0)
+    capacity_type: str = Field(default="reserved")
+    shutdown_after_seconds: int = Field(default=0, ge=0)
+
+
+class SSHAccessRecord(BaseModel):
+    deployment_id: str
+    host: str
+    port: int
+    username: str = "user"
+    private_key: str | None = None
+    fingerprint: str | None = None
+    ready: bool = False
+
+
+class ComputeRuntimeRecord(BaseModel):
+    runtime_id: str = Field(default_factory=lambda: str(uuid4()))
+    deployment_id: str
+    workload_id: str
+    hotkey: str
+    node_id: str
+    workload_kind: str
+    status: str = "accepted"
+    current_stage: str = "accepted_lease"
+    endpoint: str | None = None
+    ssh_host: str | None = None
+    ssh_port: int | None = None
+    ssh_username: str = "user"
+    ssh_fingerprint: str | None = None
+    volume_id: str | None = None
+    volume_path: str | None = None
+    volume_size_gb: int = 50
+    gpu_fraction: float = 1.0
+    container_id: str | None = None
+    vm_id: str | None = None
+    template: str | None = None
+    ttl_seconds: int = 0
+    failure_class: str | None = None
+    last_error: str | None = None
+    restart_count: int = Field(default=0, ge=0)
+    last_healthcheck_at: datetime | None = None
+    last_transition_at: datetime = Field(default_factory=utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class VolumeRecord(BaseModel):
+    volume_id: str = Field(default_factory=lambda: str(uuid4()))
+    deployment_id: str
+    hotkey: str
+    node_id: str
+    path: str
+    size_gb: int
+    backup_uri: str | None = None
+    last_backed_up_at: datetime | None = None
+    status: str = "created"
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class CollateralRecord(BaseModel):
+    hotkey: str
+    amount_tao: float = Field(default=0.0, ge=0.0)
+    locked: bool = False
+    slash_events: list[dict[str, Any]] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ComputePlacementRecord(BaseModel):
+    placement_id: str = Field(default_factory=lambda: str(uuid4()))
+    deployment_id: str
+    workload_id: str
+    runtime_id: str | None = None
+    hotkey: str
+    node_id: str
+    server_id: str | None = None
+    hostname: str | None = None
+    status: str = "assigned"
+    reason: str | None = None
+    assigned_at: datetime = Field(default_factory=utcnow)
+    activated_at: datetime | None = None
+    released_at: datetime | None = None
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class ChatCompletionMessage(BaseModel):
