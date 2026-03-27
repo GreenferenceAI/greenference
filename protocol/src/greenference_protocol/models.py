@@ -309,6 +309,8 @@ class ScoreCard(BaseModel):
     performance_score: float = Field(ge=0.0)
     security_score: float = Field(ge=0.0)
     fraud_penalty: float = Field(ge=0.0)
+    utilization_score: float = Field(default=1.0, ge=0.0)
+    rental_revenue_bonus: float = Field(default=0.0, ge=0.0)
     final_score: float = Field(ge=0.0)
     computed_at: datetime = Field(default_factory=utcnow)
 
