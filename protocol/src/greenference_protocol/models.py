@@ -747,6 +747,16 @@ class MetagraphEntry(BaseModel):
     registered: bool = True
 
 
+class MinerWhitelistEntry(BaseModel):
+    """Approved miner — only whitelisted hotkeys receive incentive."""
+
+    hotkey: str
+    label: str = ""
+    energy_source: str = ""
+    notes: str = ""
+    approved_at: datetime = Field(default_factory=utcnow)
+
+
 class ChainWeightCommit(BaseModel):
     """Record of a set_weights extrinsic submitted to the chain."""
 
