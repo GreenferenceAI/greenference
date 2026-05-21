@@ -859,7 +859,13 @@ class MinerWhitelistEntry(BaseModel):
 
 
 class GreenEnergyApplication(BaseModel):
-    """Provider application to join the subnet with green-energy proof."""
+    """Provider application to join the subnet with green-energy proof.
+
+    `details` carries the full structured form payload (business address,
+    data-center address, accreditations, infra, support, environment,
+    node specs). Stored as JSON so we can iterate on the form fields
+    without a migration each time.
+    """
 
     application_id: str = Field(default_factory=lambda: str(uuid4()))
     hotkey: str
@@ -867,6 +873,7 @@ class GreenEnergyApplication(BaseModel):
     organization: str = ""
     energy_source: str = ""
     description: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
     status: str = "pending"  # pending | approved | rejected
     reviewer_notes: str = ""
     submitted_at: datetime = Field(default_factory=utcnow)
