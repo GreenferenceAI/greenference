@@ -990,6 +990,65 @@ class GpuCapacityOverride(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Provider self-service server onboarding — UI-driven SSH provisioning of a
+# miner node-agent onto a whitelisted provider's own hardware.
+# ---------------------------------------------------------------------------
+
+
+class ProviderServerCreateRequest(BaseModel):
+    """Submitted from the provider UI to onboard one physical server.
+
+    The SSH credential (`ssh_password` OR `ssh_private_key`) is used only for
+    the one provisioning run and is NEVER persisted — it lives in memory for
+    the duration of the job and is discarded. `hotkey` must already be
+    whitelisted; the node is provisioned in HMAC auth mode (no Bittensor
+    wallet on the box).
+    """
+
+    # Bittensor identity this server mines under (must be whitelisted).
+    hotkey: str = Field(min_length=3, max_length=128)
+    payout_address: str = Field(default="", max_length=256)
+    # Friendly label shown in the UI; also seeds the unique node_id.
+    label: str = Field(default="", max_length=64)
+    # SSH access to the target box.
+    ssh_host: str = Field(min_length=1, max_length=255)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    ssh_user: str = Field(default="root", min_length=1, max_length=64)
+    ssh_password: str = Field(default="", max_length=512)
+    ssh_private_key: str = Field(default="", max_length=20000)
+    # Optional: HF token to bake into the node's .env for gated models.
+    hf_token: str = Field(default="", max_length=512)
+
+
+class ProviderServerRecord(BaseModel):
+    """Persisted server record. No SSH secret is stored here."""
+
+    server_id: str = Field(default_factory=lambda: str(uuid4()))
+    owner_user_id: str | None = None
+    hotkey: str = ""
+    payout_address: str = ""
+    label: str = ""
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = "root"
+    node_id: str = ""
+    # pending | provisioning | running | failed
+    status: str = "pending"
+    # Detected hardware summary (filled in during provisioning).
+    gpu_model: str = ""
+    gpu_count: int = 0
+    vram_gb_per_gpu: int = 0
+    cpu_cores: int = 0
+    memory_gb: int = 0
+    public_ip: str = ""
+    last_error: str = ""
+    # Append-only provisioning log shown live in the UI.
+    provision_log: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+# ---------------------------------------------------------------------------
 # Model catalog — Chutes-style shared inference pool
 # ---------------------------------------------------------------------------
 
