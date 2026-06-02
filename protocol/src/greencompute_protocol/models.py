@@ -1146,6 +1146,9 @@ class StripeSession(BaseModel):
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     user_id: str
     stripe_session_id: str = ""
+    # Stripe PaymentIntent id ("pi_..."); join key for refund/dispute webhooks
+    # back to this top-up. NULL until the checkout completes. (BILL-M1 Part B)
+    payment_intent_id: str | None = None
     amount_usd: float = 0.0
     amount_cents: int = 0
     status: str = "pending"  # pending | paid | expired
