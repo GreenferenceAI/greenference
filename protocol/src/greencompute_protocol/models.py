@@ -138,6 +138,9 @@ class DeploymentCreateRequest(BaseModel):
     workload_id: str
     requested_instances: int = Field(default=1, ge=1, le=64)
     accept_fee: bool = True
+    # Opt-out "save my pod" on credit exhaustion (default True). False → the
+    # pod is deleted shortly after credits run out instead of being saved.
+    save_on_exhaustion: bool = True
 
 
 class DeploymentUpdateRequest(BaseModel):
@@ -161,6 +164,12 @@ class DeploymentRecord(BaseModel):
     # Default 10 preserves the legacy $0.10/hr behaviour for any row that
     # somehow skips the placement hook.
     hourly_rate_cents: int = Field(default=10, ge=0)
+    # Opt-out "save my pod": when credits run out, preserve the pod (storage-
+    # billed) instead of deleting it shortly after. Defaults True.
+    save_on_exhaustion: bool = True
+    # When the pod last entered SUSPENDED — the clock for the delete reaper and
+    # storage accrual. None for pods suspended before this shipped (grandfathered).
+    suspended_at: datetime | None = None
     deployment_fee_usd: float = Field(default=0.0, ge=0.0)
     fee_acknowledged: bool = True
     warmup_state: str = "pending"
