@@ -72,6 +72,30 @@ def rate_for_gpu(gpu_model: str | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+#  Saved ("archived") pods — storage hold while suspended, per pod per day
+# ---------------------------------------------------------------------------
+
+# Flat charge per SAVED pod per day while it sits SUSPENDED with the user's
+# work preserved (the opt-in "save my pod" choice). A single flat rate per pod
+# per day — NOT per-GB — is what sales agreed. Billed as a negative-balance
+# debt (debit with allow_negative) so a later top-up settles it automatically
+# via ordinary balance arithmetic. Capped by `pod_saved_retention_days` so the
+# worst-case debt is bounded (30 days → $30).
+STORAGE_CENTS_PER_DAY: int = 100  # $1.00 / pod / day
+
+_MINUTES_PER_DAY = 1440
+
+
+def storage_mcents_per_minute(cents_per_day: int = STORAGE_CENTS_PER_DAY) -> int:
+    """Per-minute storage charge in MILLICENTS, matching the metering loop's
+    per-minute accrual cadence. The sub-cent remainder is carried on each
+    deployment's `storage_remainder_mcents` accumulator (like
+    `metering_remainder_mcents`), so it converges to exactly `cents_per_day`
+    over any 24h window regardless of tick jitter."""
+    return round(cents_per_day * 1000 / _MINUTES_PER_DAY)
+
+
+# ---------------------------------------------------------------------------
 #  Inference — per 1M tokens, in cents
 # ---------------------------------------------------------------------------
 
