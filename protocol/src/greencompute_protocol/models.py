@@ -918,6 +918,9 @@ class CommercialInquiryCreateRequest(BaseModel):
     deployment_date: str = Field(default="", max_length=64)
     budget: str = Field(default="", max_length=128)
     use_case: str = Field(default="", max_length=5000)
+    # Optional direct-contact handles so sales can follow up off-email.
+    discord: str = Field(default="", max_length=64)
+    phone: str = Field(default="", max_length=32)
     # Honeypot — bots fill hidden inputs; real users leave it blank.
     website: str = Field(default="", max_length=255)
 
@@ -932,6 +935,8 @@ class CommercialInquiryRecord(BaseModel):
     deployment_date: str = ""
     budget: str = ""
     use_case: str = ""
+    discord: str = ""
+    phone: str = ""
     source_ip: str | None = None
     user_agent: str | None = None
     status: str = "new"  # new | contacted | won | lost
@@ -956,6 +961,9 @@ class BareMetalInquiryCreateRequest(BaseModel):
     deployment_date: str = Field(default="", max_length=64)
     duration: str = Field(default="", max_length=128)
     notes: str = Field(default="", max_length=5000)
+    # Optional direct-contact handles so sales can follow up off-email.
+    discord: str = Field(default="", max_length=64)
+    phone: str = Field(default="", max_length=32)
     website: str = Field(default="", max_length=255)  # honeypot
 
 
@@ -972,6 +980,8 @@ class BareMetalInquiryRecord(BaseModel):
     deployment_date: str = ""
     duration: str = ""
     notes: str = ""
+    discord: str = ""
+    phone: str = ""
     source_ip: str | None = None
     user_agent: str | None = None
     status: str = "new"
