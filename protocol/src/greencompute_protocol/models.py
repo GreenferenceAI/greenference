@@ -68,7 +68,12 @@ class UserRecord(BaseModel):
     bio: str | None = None
     website: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    balance_credits: int = Field(default=0, ge=0)
+    # No lower bound: a balance legitimately goes negative when usage/storage
+    # debt is debited past zero before the next top-up. A ge=0 here made
+    # GET /platform/users 500 — the whole admin user list failed UserRecord
+    # validation — the instant any single user overdrew (e.g. an active rental
+    # burning credits faster than top-ups).
+    balance_credits: int = Field(default=0)
     created_at: datetime = Field(default_factory=utcnow)
 
 
