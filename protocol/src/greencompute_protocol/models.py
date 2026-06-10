@@ -78,7 +78,12 @@ class UserRecord(BaseModel):
 
 
 class WorkloadRequirements(BaseModel):
-    gpu_count: int = Field(default=1, ge=1, le=8)
+    # le raised 8→16 to match NodeCapability: a single node can pack >8 GPUs
+    # (the internal 10x A4000 box), and a pod/workload may legitimately want all
+    # of them. gpu_count=10 previously failed validation here → the gateway
+    # re-raised it uncaught as a 500. The public catalog caps (ModelCatalogEntry
+    # / CatalogSubmission) intentionally stay at 8.
+    gpu_count: int = Field(default=1, ge=1, le=16)
     min_vram_gb_per_gpu: int = Field(default=16, ge=1)
     cpu_cores: int = Field(default=8, ge=1)
     memory_gb: int = Field(default=32, ge=1)

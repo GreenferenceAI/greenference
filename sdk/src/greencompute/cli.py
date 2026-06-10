@@ -398,6 +398,38 @@ def workloads_create_vllm(
     _emit(client.create_workload(workload.workload.to_workload_payload()))
 
 
+@workloads_app.command("create-pod", help="Create a pod (generic container) workload with SSH + optional GPU/port pins")
+def workloads_create_pod(
+    ctx: typer.Context,
+    image: str = typer.Option(..., help="Container image, e.g. ghcr.io/pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime"),
+    name: str = typer.Option(..., help="Workload name"),
+    gpu_count: int = typer.Option(1, help="GPUs for the pod (1-16)"),
+    min_vram_gb: int = typer.Option(16, help="Min VRAM per GPU"),
+    gpu_model: list[str] = typer.Option([], "--gpu-model", help="Pin to GPU class(es), e.g. --gpu-model a4000 (repeatable)"),
+    ssh_pubkey: list[str] = typer.Option([], "--ssh-pubkey", help="Your SSH public key to inject (repeatable)"),
+    port: list[int] = typer.Option([], "--port", help="Extra container port to expose (repeatable, max 10)"),
+    volume_size_gb: int = typer.Option(50, help="Persistent /workspace volume size in GB"),
+) -> None:
+    client = _client(ctx)
+    metadata: dict[str, Any] = {"volume_size_gb": volume_size_gb}
+    if ssh_pubkey:
+        metadata["ssh_public_keys"] = list(ssh_pubkey)
+    if port:
+        metadata["requested_ports"] = list(port)
+    payload: dict[str, Any] = {
+        "name": name,
+        "kind": "pod",
+        "image": image,
+        "requirements": {
+            "gpu_count": gpu_count,
+            "min_vram_gb_per_gpu": min_vram_gb,
+            "supported_gpu_models": list(gpu_model),
+        },
+        "metadata": metadata,
+    }
+    _emit(client.create_workload(payload))
+
+
 @workloads_app.command("create-diffusion", help="Create a diffusion workload")
 def workloads_create_diffusion(
     ctx: typer.Context,
@@ -750,6 +782,52 @@ def deployments_get(
 ) -> None:
     client = _client(ctx)
     _emit(client.get_deployment(deployment_id))
+
+
+@deployments_app.command("ssh", help="Show SSH access for a pod deployment (host/port/key)")
+def deployments_ssh(
+    ctx: typer.Context,
+    deployment_id: str = typer.Argument(..., help="Deployment ID"),
+    save_key: str | None = typer.Option(
+        None, "--save-key", help="Write the private key to this path (chmod 600) and print the ready-to-run ssh command"
+    ),
+) -> None:
+    client = _client(ctx)
+    try:
+        info = client.get_deployment_ssh(deployment_id)
+    except GreenComputeHTTPError as exc:
+        if exc.status_code == 404:
+            console.print(
+                "SSH not available yet — the pod has no ssh:// endpoint. "
+                "Wait for it to be ready: greencompute deployments wait "
+                f"{deployment_id}"
+            )
+            raise typer.Exit(code=1) from exc
+        raise
+    host = info.get("ssh_host")
+    port = info.get("ssh_port")
+    user = info.get("ssh_username", "root")
+    # Extra (non-SSH) ports the pod exposed land on the SAME host; surface them
+    # so the user doesn't have to dig port_mappings out of `deployments get`.
+    port_mappings = {}
+    try:
+        port_mappings = client.get_deployment(deployment_id).get("port_mappings") or {}
+    except GreenComputeHTTPError:
+        pass
+    if save_key:
+        from pathlib import Path
+
+        key_path = Path(save_key).expanduser()
+        key_path.write_text((info.get("private_key") or "").rstrip("\n") + "\n", encoding="utf-8")
+        key_path.chmod(0o600)
+        console.print(f"private key written to {key_path}")
+        console.print(f"ssh -i {key_path} -p {port} {user}@{host}")
+        for cport, hport in port_mappings.items():
+            console.print(f"exposed port {cport} -> {host}:{hport}")
+        return
+    if port_mappings:
+        info = {**info, "port_mappings": {str(k): f"{host}:{v}" for k, v in port_mappings.items()}}
+    _emit(info)
 
 
 @deployments_app.command("update", help="Update a deployment")
