@@ -78,7 +78,12 @@ class UserRecord(BaseModel):
 
 
 class WorkloadRequirements(BaseModel):
-    gpu_count: int = Field(default=1, ge=1, le=8)
+    # le raised 8→16 to match NodeCapability: a single node can pack >8 GPUs
+    # (the internal 10x A4000 box), and a pod/workload may legitimately want all
+    # of them. gpu_count=10 previously failed validation here → the gateway
+    # re-raised it uncaught as a 500. The public catalog caps (ModelCatalogEntry
+    # / CatalogSubmission) intentionally stay at 8.
+    gpu_count: int = Field(default=1, ge=1, le=16)
     min_vram_gb_per_gpu: int = Field(default=16, ge=1)
     cpu_cores: int = Field(default=8, ge=1)
     memory_gb: int = Field(default=32, ge=1)
@@ -195,8 +200,12 @@ class NodeCapability(BaseModel):
     hostname: str | None = None
     observed_at: datetime | None = None
     gpu_model: str
-    gpu_count: int = Field(ge=1, le=8)
-    available_gpus: int = Field(ge=0, le=8)
+    # le raised 8→16: a single physical node can pack more than 8 GPUs (the
+    # internal 10x A4000 test box tripped the old cap, so its capacity update
+    # failed validation and it never registered). Per-deployment / per-catalog
+    # GPU caps elsewhere intentionally stay at 8.
+    gpu_count: int = Field(ge=1, le=16)
+    available_gpus: int = Field(ge=0, le=16)
     vram_gb_per_gpu: int = Field(ge=1)
     cpu_cores: int = Field(ge=1)
     memory_gb: int = Field(ge=1)
@@ -248,8 +257,9 @@ class CapacityHistoryRecord(BaseModel):
     hotkey: str
     server_id: str | None = None
     node_id: str
-    available_gpus: int = Field(ge=0, le=8)
-    total_gpus: int = Field(ge=1, le=8)
+    # le raised 8→16 to match NodeCapability (nodes can have >8 GPUs).
+    available_gpus: int = Field(ge=0, le=16)
+    total_gpus: int = Field(ge=1, le=16)
     observed_at: datetime = Field(default_factory=utcnow)
 
 

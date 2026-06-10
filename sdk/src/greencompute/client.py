@@ -504,6 +504,12 @@ class GreenComputeClient:
     def get_deployment_info(self, deployment_id: str) -> DeploymentInfo:
         return self._deployment_info(self.get_deployment(deployment_id))
 
+    def get_deployment_ssh(self, deployment_id: str) -> dict:
+        """SSH access details for a pod deployment (host/port/user/command +
+        the auto-generated private key). Available once the pod has an ssh://
+        endpoint (state ready); raises HTTP 404 before then."""
+        return self._get(f"/platform/deployments/{deployment_id}/ssh")  # type: ignore[return-value]
+
     def update_deployment(self, deployment_id: str, payload: dict) -> dict:
         return self._patch(f"/platform/deployments/{deployment_id}", payload)  # type: ignore[return-value]
 
