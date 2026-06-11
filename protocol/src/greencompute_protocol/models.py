@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# A safe OCI image reference: lowercase repository path components plus an
+# optional tag. No registry host, no leading slash, no uppercase, no '..' —
+# this string is interpolated into registry paths (/v2/{repo}/...), so it must
+# not be able to traverse out of or target another path.
+_OCI_IMAGE_RE = re.compile(
+    r"^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*"
+    r"(:[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127})?$"
+)
 
 from greencompute_protocol.enums import (
     DeploymentState,
@@ -426,7 +436,7 @@ class WorkloadShareRecord(BaseModel):
 
 
 class BuildRequest(BaseModel):
-    image: str = Field(min_length=1)
+    image: str = Field(min_length=1, max_length=255)
     context_uri: str | None = None
     dockerfile_path: str = Field(default="Dockerfile", min_length=1)
     context_archive_b64: str | None = None
@@ -436,6 +446,20 @@ class BuildRequest(BaseModel):
     logo_uri: str | None = Field(default=None, min_length=1, max_length=1024)
     tags: list[str] = Field(default_factory=list)
     public: bool = False
+
+    @field_validator("image")
+    @classmethod
+    def _validate_image(cls, v: str) -> str:
+        v = v.strip()
+        if ".." in v:
+            raise ValueError("image reference must not contain '..'")
+        if not _OCI_IMAGE_RE.match(v):
+            raise ValueError(
+                "image must be a lowercase OCI reference like 'name' or "
+                "'name:tag' using a-z, 0-9, '.', '_', '-', '/' — no registry "
+                "host, leading slash, or uppercase in the repository"
+            )
+        return v
 
 
 class BuildContextUploadRequest(BaseModel):
