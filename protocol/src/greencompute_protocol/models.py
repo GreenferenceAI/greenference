@@ -57,7 +57,10 @@ class UserProfileUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=128)
     bio: str | None = Field(default=None, max_length=1024)
     website: str | None = Field(default=None, min_length=1, max_length=255)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    # None (field omitted) = keep the user's existing metadata. The old
+    # `default_factory=dict` made every partial PATCH that omitted the field
+    # silently WIPE the stored metadata; send {} explicitly to clear it.
+    metadata: dict[str, Any] | None = None
 
 
 class UserRecord(BaseModel):
