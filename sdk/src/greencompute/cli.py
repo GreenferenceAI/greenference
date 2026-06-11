@@ -623,11 +623,13 @@ def secrets_list(ctx: typer.Context) -> None:
 @secrets_app.command("create", help="Create a secret")
 def secrets_create(
     ctx: typer.Context,
-    purpose: str = typer.Option(..., help="Purpose"),
-    key: str = typer.Option(..., help="Key/value"),
+    name: str = typer.Option(..., help="Secret name"),
+    value: str = typer.Option(..., help="Secret value"),
 ) -> None:
     client = _client(ctx)
-    _emit(client.create_secret({"purpose": purpose, "key": key}))
+    # Field names must match UserSecretCreateRequest {name, value} — the old
+    # {purpose, key} payload 422'd on every call.
+    _emit(client.create_secret({"name": name, "value": value}))
 
 
 @secrets_app.command("delete", help="Delete a secret")
@@ -844,6 +846,24 @@ def deployments_update(
     if fee_acknowledged is not None:
         payload["fee_acknowledged"] = fee_acknowledged
     _emit(client.update_deployment(deployment_id, payload))
+
+
+@deployments_app.command("delete", help="Terminate and delete a deployment")
+def deployments_delete(
+    ctx: typer.Context,
+    deployment_id: str = typer.Argument(..., help="Deployment ID"),
+) -> None:
+    client = _client(ctx)
+    _emit(client.delete_deployment(deployment_id))
+
+
+@deployments_app.command("resume", help="Resume a suspended pod in place (preserved disk)")
+def deployments_resume(
+    ctx: typer.Context,
+    deployment_id: str = typer.Argument(..., help="Deployment ID"),
+) -> None:
+    client = _client(ctx)
+    _emit(client.resume_deployment(deployment_id))
 
 
 @deployments_app.command("wait", help="Wait for a deployment to reach a terminal or ready state")

@@ -206,7 +206,11 @@ class GreenComputeClient:
             method="POST",
         )
         with self._open(req) as response:
-            for line in response.read().decode().splitlines():
+            # Iterate the socket line-by-line — response.read() buffered the
+            # ENTIRE stream before yielding, so "streaming" delivered nothing
+            # until the completion finished.
+            for raw_line in response:
+                line = raw_line.decode("utf-8", "replace").rstrip("\r\n")
                 if not line.startswith("data: "):
                     continue
                 yield line[6:]
@@ -219,8 +223,8 @@ class GreenComputeClient:
         )
         with self._open(req) as response:
             current_event: str | None = None
-            for raw_line in response.read().decode().splitlines():
-                line = raw_line.strip()
+            for raw in response:
+                line = raw.decode("utf-8", "replace").strip()
                 if not line:
                     current_event = None
                     continue
@@ -512,6 +516,14 @@ class GreenComputeClient:
 
     def update_deployment(self, deployment_id: str, payload: dict) -> dict:
         return self._patch(f"/platform/deployments/{deployment_id}", payload)  # type: ignore[return-value]
+
+    def delete_deployment(self, deployment_id: str) -> dict:
+        return self._delete(f"/platform/deployments/{deployment_id}")  # type: ignore[return-value]
+
+    def resume_deployment(self, deployment_id: str) -> dict:
+        """Resume a SUSPENDED pod in place (same container, preserved disk).
+        Requires balance for ~1h at the locked rate; 402 otherwise."""
+        return self._post(f"/platform/deployments/{deployment_id}/resume", {})  # type: ignore[return-value]
 
     # --- Secrets ---
     def create_secret(self, payload: dict) -> dict:
