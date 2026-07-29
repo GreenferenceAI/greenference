@@ -1114,6 +1114,90 @@ class ProviderServerRecord(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class MultiNodeConfig(BaseModel):
+    """Distributed-serving topology for a model too large for a single node.
+
+    One *replica* of such a model spans `node_count` physical nodes, each
+    contributing `gpus_per_node` GPUs, served as ONE engine (Ray-coordinated
+    vLLM/SGLang). Example — Kimi K3 on 5090s: node_count=8, gpus_per_node=8
+    → 64 GPUs, tensor-parallel 8 inside each box, pipeline-parallel 8 across
+    boxes.
+
+    Why TP inside / PP across: tensor parallelism exchanges activations on every
+    layer and needs NVLink-class bandwidth, so it must stay within a chassis.
+    Pipeline parallelism only passes activations at stage boundaries, so it is
+    the only split that tolerates an inter-node network link. Getting this
+    backwards (TP across boxes) collapses throughput on anything short of
+    InfiniBand.
+    """
+
+    # How many physical nodes make up ONE replica.
+    node_count: int = Field(default=1, ge=1, le=32)
+    # GPUs each of those nodes contributes.
+    gpus_per_node: int = Field(default=1, ge=1, le=16)
+    # Parallelism degrees. Default (None) = derive: TP = gpus_per_node,
+    # PP = node_count, which is the standard topology described above.
+    tensor_parallel_size: int | None = Field(default=None, ge=1, le=16)
+    pipeline_parallel_size: int | None = Field(default=None, ge=1, le=32)
+    # Minimum inter-node link a candidate node must advertise (labels
+    # "interconnect_gbps"). Cross-box serving over a slow link is worse than
+    # useless, so placement refuses nodes below this.
+    min_interconnect_gbps: float = Field(default=0.0, ge=0.0)
+    # Distributed runtime that coordinates the ranks.
+    backend: str = "ray"  # "ray" | "vllm-native"
+
+    @property
+    def total_gpus(self) -> int:
+        return self.node_count * self.gpus_per_node
+
+    @property
+    def effective_tensor_parallel_size(self) -> int:
+        return self.tensor_parallel_size or self.gpus_per_node
+
+    @property
+    def effective_pipeline_parallel_size(self) -> int:
+        return self.pipeline_parallel_size or self.node_count
+
+    @property
+    def is_distributed(self) -> bool:
+        return self.node_count > 1
+
+
+class MultiNodeNodeAssignment(BaseModel):
+    """One node's role in a distributed replica."""
+
+    hotkey: str
+    node_id: str
+    # Rank 0 is the head: it runs the Ray head process and the API server that
+    # the gateway routes to. Workers join it.
+    rank: int = Field(ge=0)
+    gpu_count: int = Field(ge=1, le=16)
+
+    @property
+    def is_head(self) -> bool:
+        return self.rank == 0
+
+
+class MultiNodePlan(BaseModel):
+    """A concrete placement of one distributed replica across nodes."""
+
+    model_config = {"protected_namespaces": ()}
+
+    model_id: str
+    assignments: list[MultiNodeNodeAssignment]
+    tensor_parallel_size: int = Field(ge=1)
+    pipeline_parallel_size: int = Field(ge=1)
+    backend: str = "ray"
+
+    @property
+    def head(self) -> MultiNodeNodeAssignment:
+        return self.assignments[0]
+
+    @property
+    def total_gpus(self) -> int:
+        return sum(a.gpu_count for a in self.assignments)
+
+
 class ModelCatalogEntry(BaseModel):
     """An admin-approved model that the subnet's inference pool hosts.
 
@@ -1132,7 +1216,11 @@ class ModelCatalogEntry(BaseModel):
     hf_repo: str = ""
     template: str = "vllm"  # "vllm" | "vllm-vision" | "diffusion"
     min_vram_gb_per_gpu: int = Field(default=24, ge=1)
+    # Single-node GPU count. Stays capped at 8 (one chassis). A model that needs
+    # more than one node's worth of VRAM sets `multi_node` instead, which is
+    # authoritative for topology when present.
     gpu_count: int = Field(default=1, ge=1, le=8)
+    multi_node: MultiNodeConfig | None = None
     max_model_len: int | None = Field(default=None, ge=1)
     visibility: str = "public"  # "public" | "gated"
     min_replicas: int = Field(default=1, ge=0)
