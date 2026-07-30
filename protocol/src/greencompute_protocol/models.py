@@ -300,6 +300,11 @@ class LeaseAssignment(BaseModel):
     assigned_at: datetime = Field(default_factory=utcnow)
     expires_at: datetime | None = None
     status: str = "assigned"
+    # This rank's role in a distributed replica, mirrored from
+    # deployments.multi_node. It rides on the LEASE (not the workload) because
+    # every rank shares one workload but needs its OWN role/rank/head_host.
+    # None for ordinary single-node deployments.
+    multi_node: dict | None = None
 
 
 class LeaseHistoryRecord(BaseModel):
