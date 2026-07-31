@@ -110,6 +110,12 @@ class InferenceRuntimeConfig(BaseModel):
     model_identifier: str = Field(default="sshleifer/tiny-gpt2", min_length=1, max_length=255)
     model_revision: str | None = Field(default=None, min_length=1, max_length=128)
     tokenizer_identifier: str | None = Field(default=None, min_length=1, max_length=255)
+    # Context window to serve with. The catalog entry sets it and
+    # _ensure_catalog_workload writes it here; WITHOUT this field pydantic
+    # silently dropped it, so the value never reached vLLM and every text model
+    # ran at its config's native maximum. Harmless for a 32k model, fatal for
+    # one whose native context is 1M (Kimi K3) — the KV cache is sized off it.
+    max_model_len: int | None = Field(default=None, ge=1)
 
 
 class WorkloadLifecyclePolicy(BaseModel):
