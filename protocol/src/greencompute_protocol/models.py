@@ -116,6 +116,13 @@ class InferenceRuntimeConfig(BaseModel):
     # ran at its config's native maximum. Harmless for a 32k model, fatal for
     # one whose native context is 1M (Kimi K3) — the KV cache is sized off it.
     max_model_len: int | None = Field(default=None, ge=1)
+    # Pin a specific serving image for THIS model. Normally the miner picks the
+    # vLLM image (it alone knows its driver/compute-cap), but some models only
+    # load on a particular build — e.g. Kimi K3 needs a vLLM that registers
+    # KimiK3ForConditionalGeneration, which the stable cu130 tag does not.
+    # Set per catalog entry so one exotic model can't drag the whole fleet onto
+    # a nightly.
+    image_override: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class WorkloadLifecyclePolicy(BaseModel):
@@ -1233,6 +1240,8 @@ class ModelCatalogEntry(BaseModel):
     gpu_count: int = Field(default=1, ge=1, le=8)
     multi_node: MultiNodeConfig | None = None
     max_model_len: int | None = Field(default=None, ge=1)
+    # Serving image pin for models that only load on a specific vLLM build.
+    image_override: str | None = Field(default=None, min_length=1, max_length=255)
     visibility: str = "public"  # "public" | "gated"
     min_replicas: int = Field(default=1, ge=0)
     max_replicas: int | None = Field(default=None, ge=1)
