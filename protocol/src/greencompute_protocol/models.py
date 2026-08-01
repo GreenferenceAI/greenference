@@ -105,6 +105,28 @@ class WorkloadRequirements(BaseModel):
     supported_gpu_models: list[str] = Field(default_factory=list)
 
 
+# Characters that would let an operator-supplied engine arg break out of the
+# `sh -c` script the multi-node launcher builds. The launcher shlex-quotes as
+# well; this is the belt to that braces, and it also protects the single-node
+# argv path against a future refactor that reintroduces a shell.
+_SHELL_METACHARACTERS = re.compile(r"[;&|`$><\n\r\\]")
+_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _reject_shell_metacharacters(value: str, what: str) -> str:
+    if _SHELL_METACHARACTERS.search(value):
+        raise ValueError(f"{what} contains a shell metacharacter: {value!r}")
+    return value
+
+
+def _validated_env(env: dict[str, str]) -> dict[str, str]:
+    for key, value in env.items():
+        if not _ENV_KEY.match(key):
+            raise ValueError(f"invalid environment variable name: {key!r}")
+        _reject_shell_metacharacters(value, f"env value for {key}")
+    return env
+
+
 class InferenceRuntimeConfig(BaseModel):
     runtime_kind: str = Field(default="hf-causal-lm", min_length=1, max_length=64)
     model_identifier: str = Field(default="sshleifer/tiny-gpt2", min_length=1, max_length=255)
@@ -123,6 +145,26 @@ class InferenceRuntimeConfig(BaseModel):
     # Set per catalog entry so one exotic model can't drag the whole fleet onto
     # a nightly.
     image_override: str | None = Field(default=None, min_length=1, max_length=255)
+    # Escape hatch for per-model engine tuning we don't model as first-class
+    # fields. Appended verbatim to the vLLM argv, and exported into the rank
+    # containers respectively. Motivated by Kimi K3 on sm_120, which needs
+    # `--moe-backend marlin` (the auto oracle picks DeepGEMM, which has no
+    # sm_120 branch and hard-asserts) plus raised distributed timeouts.
+    # ADMIN-ONLY: the catalog is admin-managed, and these become container argv
+    # and env. Validated below anyway — the multi-node path joins argv into a
+    # `sh -c` script, so an unquoted metacharacter would be a command injection.
+    extra_engine_args: list[str] = Field(default_factory=list)
+    extra_env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("extra_engine_args")
+    @classmethod
+    def _no_shell_metacharacters(cls, v: list[str]) -> list[str]:
+        return [_reject_shell_metacharacters(a, "engine arg") for a in v]
+
+    @field_validator("extra_env")
+    @classmethod
+    def _valid_env(cls, v: dict[str, str]) -> dict[str, str]:
+        return _validated_env(v)
 
 
 class WorkloadLifecyclePolicy(BaseModel):
@@ -1242,6 +1284,21 @@ class ModelCatalogEntry(BaseModel):
     max_model_len: int | None = Field(default=None, ge=1)
     # Serving image pin for models that only load on a specific vLLM build.
     image_override: str | None = Field(default=None, min_length=1, max_length=255)
+    # Per-model engine tuning passed through to vLLM / the rank containers.
+    # See InferenceRuntimeConfig for the rationale and the safety rules.
+    extra_engine_args: list[str] = Field(default_factory=list)
+    extra_env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("extra_engine_args")
+    @classmethod
+    def _no_shell_metacharacters(cls, v: list[str]) -> list[str]:
+        return [_reject_shell_metacharacters(a, "engine arg") for a in v]
+
+    @field_validator("extra_env")
+    @classmethod
+    def _valid_env(cls, v: dict[str, str]) -> dict[str, str]:
+        return _validated_env(v)
+
     visibility: str = "public"  # "public" | "gated"
     min_replicas: int = Field(default=1, ge=0)
     max_replicas: int | None = Field(default=None, ge=1)
