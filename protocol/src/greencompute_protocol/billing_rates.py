@@ -113,15 +113,22 @@ INFERENCE_OUTPUT_CENTS_PER_MTOK: int = 60  # $0.60 / 1M output tokens
 # RTX 5090) for ONE replica, so leaving it on the default billed $0.60/1M
 # output against a measured cost of ~$162/1M.
 #
-# K3 is set at MARKET PARITY with every other K3 provider ($3.00/$15.00 — that
-# is Moonshot's own list price, which all ~11 endpoints copy verbatim). We
-# deliberately do NOT undercut: at 86 tok/s aggregate every token is served
-# below cost, so cheaper pricing only widens the loss, and we cannot win the
-# latency comparison anyway (15 tok/s single-stream vs 22-219 for commercial
-# endpoints). Parity recovers the most revenue per token from whatever usage
-# occurs. See project_k3_pricing_economics for the full derivation.
+# K3 is priced DELIBERATELY BELOW the market. Reference price across all ~11
+# commercial K3 endpoints is $3.00/$15.00 (Moonshot's own list price, copied
+# verbatim); the cheapest single endpoint is Morph at $2.90/$14.00. We sit
+# ~33% under the reference at $2.00/$10.00, which makes GreenCompute the
+# cheapest K3 anywhere and reflects the hardware story: 72x RTX 5090 at
+# $0.70/GPU-hr vs an 8xB300 node at $65+/hr, on 100% renewable power.
+#
+# Known and accepted: at the measured 86 tok/s aggregate ceiling every K3 token
+# is served below cost either way (~$162/1M at the $50.40/hr opportunity cost of
+# the 72 cards), so the discount changes the economics by only ~3% — the
+# throughput is the cost driver, not the price. This is a positioning decision,
+# not a margin one. Revisit if aggregate throughput ever clears ~930 tok/s,
+# which is break-even at the $15 reference.
+# See project_k3_pricing_economics for the full derivation.
 MODEL_RATE_CENTS_PER_MTOK: dict[str, tuple[int, int]] = {
-    "kimi-k3": (300, 1500),  # $3.00 / 1M in, $15.00 / 1M out
+    "kimi-k3": (200, 1000),  # $2.00 / 1M in, $10.00 / 1M out
 }
 
 # Minimum charge per completion, in cents. Prevents abuse of sub-cent tiny
