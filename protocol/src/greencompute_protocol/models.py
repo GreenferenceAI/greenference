@@ -760,7 +760,26 @@ class ChatCompletionMessage(BaseModel):
     role: str
     # OpenAI spec: content is either a plain string OR a list of content blocks
     # (for multimodal — images, audio, video). Qwen2-VL, LLaVA, etc. require this form.
-    content: str | list[ChatCompletionContentBlock]
+    #
+    # OPTIONAL because a pure tool call carries `content: null` — declaring it
+    # required made those responses fail validation outright.
+    content: str | list[ChatCompletionContentBlock] | None = None
+
+    # `tool_calls` lives on the MESSAGE, not the choice. ChatCompletionChoice
+    # sets extra="allow" and its comment claims tool_calls passes through, but
+    # that only covers choice-level keys — so every tool call vLLM produced was
+    # silently stripped here. Clients saw finish_reason="tool_calls" with no
+    # tool_calls array and their agent loop stalled.
+    tool_calls: list[dict] | None = None
+
+    # Reasoning models (Kimi K3) return the chain of thought beside the answer,
+    # under either name depending on the parser. Dropped for the same reason.
+    reasoning: str | None = None
+    reasoning_content: str | None = None
+
+    # Anything else the upstream emits rides through untouched, so we don't have
+    # to chase every new vLLM field to avoid silently deleting it.
+    model_config = {"extra": "allow"}
 
 
 class ChatCompletionRequest(BaseModel):
