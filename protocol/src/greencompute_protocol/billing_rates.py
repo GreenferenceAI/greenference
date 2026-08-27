@@ -128,7 +128,10 @@ INFERENCE_OUTPUT_CENTS_PER_MTOK: int = 60  # $0.60 / 1M output tokens
 # which is break-even at the $15 reference.
 # See project_k3_pricing_economics for the full derivation.
 MODEL_RATE_CENTS_PER_MTOK: dict[str, tuple[int, int]] = {
-    "kimi-k3": (200, 1000),  # $2.00 / 1M in, $10.00 / 1M out
+    "kimi-k3": (200, 1000),
+    # K3 CODER (REAP-320) on 48x RTX 5090. Pruned to ~1.03T params so it is
+    # cheaper to serve than full K3, but still pins a whole 6-node cluster.
+    "k3-coder": (100, 500),  # $1.00 in / $5.00 out  # $2.00 / 1M in, $10.00 / 1M out
 }
 
 # Minimum charge per completion, in cents. Prevents abuse of sub-cent tiny
