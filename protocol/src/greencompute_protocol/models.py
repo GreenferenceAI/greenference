@@ -998,7 +998,12 @@ class GreenEnergyApplication(BaseModel):
     """
 
     application_id: str = Field(default_factory=lambda: str(uuid4()))
-    hotkey: str
+    # One of `hotkey` or `payout_address` identifies the applicant:
+    #   * hotkey         — legacy self-custody: they registered their own neuron.
+    #   * payout_address — managed wallet: the platform creates and holds the
+    #     keys, and this is where their alpha emissions are forwarded.
+    hotkey: str = ""
+    payout_address: str | None = None
     signature: str = ""
     organization: str = ""
     energy_source: str = ""
